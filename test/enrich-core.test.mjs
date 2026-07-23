@@ -201,18 +201,58 @@ test('buildConfirmBatchPrompt numbers contacts inside the fence and forbids cros
   assert.match(p, /"n": 1/)
 })
 
+const confirmContacts = (n) =>
+  Array.from({ length: n }, (_, i) => ({ linkedinUrl: `https://linkedin.com/in/person-${i + 1}` }))
+
 test('validateEnrichmentBatch aligns by n and degrades bad entries to null', () => {
   const out = validateEnrichmentBatch(
     [
-      { n: 2, confidence: 'high', profession: 'lawyer' },
+      { n: 2, confidence: 'high', profession: 'lawyer', linkedinUrl: 'https://linkedin.com/in/person-2' },
       { n: 99, confidence: 'high' }, // out of range — ignored
       { n: 'x', confidence: 'high' }, // malformed n — ignored
     ],
-    3,
+    confirmContacts(3),
   )
   assert.equal(out[0], null)
   assert.equal(out[1].profession, 'lawyer')
   assert.equal(out[2], null)
   // non-array garbage → all null, nothing banked
-  assert.deepEqual(validateEnrichmentBatch('junk', 2), [null, null])
+  assert.deepEqual(validateEnrichmentBatch('junk', confirmContacts(2)), [null, null])
+})
+
+// angel-review 2026-07-23 Critical (verified live): model-reported n was the only
+// identity join key — rotated n banked wrong-person identities, duplicate n last-won.
+test('validateEnrichmentBatch rejects entries whose linkedinUrl does not match the slot contact', () => {
+  // rotated numbering: entry claims n:1 but carries contact 2's URL — must not bank
+  const rotated = validateEnrichmentBatch(
+    [
+      { n: 1, confidence: 'high', realName: 'Wrong Person', linkedinUrl: 'https://linkedin.com/in/person-2' },
+      { n: 2, confidence: 'high', realName: 'Right Person', linkedinUrl: 'https://linkedin.com/in/person-2' },
+    ],
+    confirmContacts(2),
+  )
+  assert.equal(rotated[0], null)
+  assert.equal(rotated[1].realName, 'Right Person')
+  // missing/empty linkedinUrl in an entry is also a mismatch when the input has one
+  assert.deepEqual(
+    validateEnrichmentBatch([{ n: 1, confidence: 'high' }], confirmContacts(1)),
+    [null],
+  )
+  // slug matching is normalization-tolerant: case, trailing slash, query string
+  const norm = validateEnrichmentBatch(
+    [{ n: 1, confidence: 'high', linkedinUrl: 'https://www.linkedin.com/in/Person-1/?utm=x' }],
+    confirmContacts(1),
+  )
+  assert.ok(norm[0], 'normalized URL variants of the same slug must match')
+})
+
+test('validateEnrichmentBatch drops ALL claimants of a duplicated n', () => {
+  const out = validateEnrichmentBatch(
+    [
+      { n: 1, confidence: 'high', realName: 'First Claimant', linkedinUrl: 'https://linkedin.com/in/person-1' },
+      { n: 1, confidence: 'high', realName: 'Second Claimant', linkedinUrl: 'https://linkedin.com/in/person-1' },
+    ],
+    confirmContacts(2),
+  )
+  assert.deepEqual(out, [null, null])
 })

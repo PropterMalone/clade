@@ -155,7 +155,7 @@ async function enrichUnit(unit) {
   // clean response must not be misread as a throttle.
   if (limitHitExplicit) return { limitHit: true }
   const raw = parseJsonBlock(text)
-  const perContact = grouped ? validateEnrichmentBatch(raw, contacts.length) : [validateEnrichment(raw)]
+  const perContact = grouped ? validateEnrichmentBatch(raw, contacts) : [validateEnrichment(raw)]
   const outcomes = []
   let banked = 0
   for (let i = 0; i < contacts.length; i++) {

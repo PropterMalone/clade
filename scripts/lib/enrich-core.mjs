@@ -203,20 +203,47 @@ Each contact already includes a strong link (a LinkedIn URL). For EACH numbered 
 ETHICAL CONSTRAINT (mandatory): if a contact is only known by a pseudonymous handle, do NOT unmask a legal name the person hasn't publicly tied to that handle — capture only the public persona + expertise. Named address-book contacts are fine to research normally.
 
 Output ONLY a single fenced \`\`\`json block (nothing after it): an array with one entry per contact, e.g.
-[{"n": 1, "realName": "", "profession": "", "employer": "", "expertise": ["lowercase","tags"], "linkedinUrl": "", "confidence": "high"|"medium"|"low"|"unidentified", "notes": "1-2 sentences: finding + key source"}, ...]`
+[{"n": 1, "realName": "", "profession": "", "employer": "", "expertise": ["lowercase","tags"], "linkedinUrl": "<REQUIRED: that contact's own linkedin line from its data block, echoed exactly>", "confidence": "high"|"medium"|"low"|"unidentified", "notes": "1-2 sentences: finding + key source"}, ...]
+
+Each entry's "linkedinUrl" MUST be the LinkedIn URL from that contact's own data block — it is the identity check binding your entry to the right person; an entry whose URL doesn't match its contact is discarded.`
+}
+
+// The /in/<slug> of a LinkedIn profile URL, lowercased — the identity the
+// confirm tier is actually checking. null for anything else.
+export const linkedinSlug = (u) => {
+  const m = /linkedin\.com\/in\/([^/?#]+?)\/?(?:[?#]|$)/i.exec(String(u || ''))
+  return m ? m[1].toLowerCase() : null
 }
 
 // -> array aligned to input order; each slot a validated enrichment record or
 // null (missing/malformed entries stay null → the contact is retried later,
-// never silently banked).
-export function validateEnrichmentBatch(parsed, count) {
+// never silently banked). `contacts` are the confirm-group inputs, in order.
+//
+// The model-reported `n` is NOT trusted as an identity join key on its own
+// (angel-review 2026-07-23, verified: rotated n banked wrong-person identities,
+// duplicate n silently last-won). Two guards:
+//  - duplicate n → ALL entries claiming that slot are dropped (never banked);
+//  - each entry must echo the contact's own LinkedIn URL — a returned
+//    linkedinUrl whose /in/<slug> doesn't match the input contact's is a
+//    misalignment or fabrication, dropped to retry.
+export function validateEnrichmentBatch(parsed, contacts) {
+  const count = contacts.length
   const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.results) ? parsed.results : []
   const out = Array.from({ length: count }, () => null)
+  const claimed = new Set()
   for (const item of list) {
     const i = Number(item?.n) - 1
     if (!Number.isInteger(i) || i < 0 || i >= count) continue
+    if (claimed.has(i)) {
+      out[i] = null // contested slot: drop ALL claimants, retry the contact
+      continue
+    }
+    claimed.add(i)
     const v = validateEnrichment(item)
-    if (v) out[i] = v
+    if (!v) continue
+    const want = linkedinSlug(contacts[i]?.linkedinUrl)
+    if (want && linkedinSlug(v.linkedinUrl) !== want) continue
+    out[i] = v
   }
   return out
 }
