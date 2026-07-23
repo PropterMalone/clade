@@ -341,3 +341,58 @@ test('vcardRecords: a card with no name and no email is skipped with an identify
   assert.equal(records.length, 0)
   assert.ok(warnings.some((w) => /skipping card.*ORPHAN-9/.test(w)), 'the skip warning must name the card')
 })
+
+// --- Bluesky graph ingest ----------------------------------------------------
+// profileView shape (from app.bsky.graph.getFollows/getFollowers).
+const bskyActor = (did, handle, displayName, description) => ({ did, handle, displayName, description })
+
+test('blueskyRecords derives edge from set membership: mutual / following / follower', async () => {
+  const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
+  const follows = [bskyActor('did:plc:aaa', 'alice.bsky.social', 'Alice'), bskyActor('did:plc:bbb', 'bob.bsky.social', 'Bob')]
+  const followers = [bskyActor('did:plc:aaa', 'alice.bsky.social', 'Alice'), bskyActor('did:plc:ccc', 'carol.bsky.social', 'Carol')]
+  const { records } = blueskyRecords(follows, followers)
+  const edge = Object.fromEntries(records.map((r) => [r.did, r.edge]))
+  assert.equal(edge['did:plc:aaa'], 'mutual') // in both lists
+  assert.equal(edge['did:plc:bbb'], 'following') // follows only
+  assert.equal(edge['did:plc:ccc'], 'follower') // followers only
+  assert.equal(records.length, 3, 'the mutual appears in both lists but is one record')
+})
+
+test('blueskyRecords: sourceId from DID, handle in handles, displayName fallback, bio + bio-URL', async () => {
+  const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
+  const { records } = blueskyRecords(
+    [bskyActor('did:plc:xyz', 'jane.example.com', 'Jane Q', 'Policy nerd. Site: https://jane.example.com.')],
+    [],
+  )
+  const r = records[0]
+  assert.equal(r.sourceId, 'did-plc-xyz') // slugified DID — stable across handle rotation
+  assert.equal(r.did, 'did:plc:xyz') // raw DID preserved (the permanent key)
+  assert.deepEqual(r.handles, { bluesky: 'jane.example.com' })
+  assert.equal(r.name, 'Jane Q')
+  assert.equal(r.bio, 'Policy nerd. Site: https://jane.example.com.')
+  assert.deepEqual(r.urls, ['https://jane.example.com']) // extracted, trailing period stripped
+})
+
+test('blueskyRecords: name falls back to handle when displayName is empty', async () => {
+  const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
+  const { records } = blueskyRecords([bskyActor('did:plc:nn', 'noname.bsky.social', '', '')], [])
+  assert.equal(records[0].name, 'noname.bsky.social')
+})
+
+test('blueskyRecords: handle.invalid is not emitted as a merge handle (would glue strangers)', async () => {
+  const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
+  const { records } = blueskyRecords(
+    [bskyActor('did:plc:one', 'handle.invalid', 'Account One', ''), bskyActor('did:plc:two', 'handle.invalid', 'Account Two', '')],
+    [],
+  )
+  assert.deepEqual(records[0].handles, {}) // no bluesky handle — placeholder dropped
+  assert.deepEqual(records[1].handles, {})
+  assert.notEqual(records[0].did, records[1].did) // DID still keeps them distinct
+})
+
+test('blueskyRecords: an actor with no DID is skipped with a warning', async () => {
+  const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
+  const { records, warnings } = blueskyRecords([bskyActor(undefined, 'ghost.bsky.social', 'Ghost'), bskyActor('did:plc:ok', 'ok.bsky.social', 'OK')], [])
+  assert.equal(records.length, 1)
+  assert.ok(warnings.some((w) => /no DID/.test(w)))
+})

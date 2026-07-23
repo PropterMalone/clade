@@ -20,3 +20,6 @@ node_modules/
 .env
 *.log
 .stop-enrichment
+
+# local Claude Code settings + their backups (never publish)
+.claude/settings.local.json*

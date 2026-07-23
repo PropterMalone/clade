@@ -45,6 +45,8 @@ normalized or overlay file.
 - `node scripts/convert-linkedin.mjs` / `convert-google.mjs` /
   `convert-facebook.mjs` / `convert-vcard.mjs` — parse the standard exports into
   normalized sources
+- `node scripts/convert-bluesky.mjs <handle>` — pull a Bluesky graph live from
+  the public API (no export, no login); local-only
 - `node scripts/build-index.mjs` — rebuild the unified index (run after any
   change to normalized sources or overlay files)
 - `node search.mjs <query>` / `--domain <tag>` / `--stats` — query the index
@@ -156,14 +158,20 @@ Known export shapes (verify against the actual file — these drift):
   itself, the higher-signal move is mining sent-mail headers for frequent
   correspondents; ask before building that (it's a bigger job and needs the
   mbox export).
-- **Bluesky**: public API, no export needed —
-  `app.bsky.graph.getFollows`/`getFollowers` (paginated), profiles via
-  `app.bsky.actor.getProfile` on `public.api.bsky.app`. Bios and links go in
-  `bio`/`urls`. **Always store the account's `did`** — handles rotate, the DID
-  is the permanent identity key (and the hook for the ADR-04 atproto roadmap).
-  Also derive and store `edge` (`mutual`/`following`/`follower`) from presence in
-  the follows vs. followers lists — capture it at ingest; it's lost if the
-  relationship changes before a later query (schema.md §5.5).
+- **Bluesky**: `node scripts/convert-bluesky.mjs <handle>` — live public API, no
+  export and no login. Paginates `app.bsky.graph.getFollows`/`getFollowers` on
+  `public.api.bsky.app`, derives `edge` (`mutual`/`following`/`follower`) from set
+  membership of the two lists, and pulls bio + bio-embedded URLs from each
+  profileView. **Stores the account's `did`** as the permanent identity key —
+  handles rotate, so `sourceId` is the DID slug and the handle lives in
+  `handles{}` (a rename won't orphan overlays); it's also the ADR-04 atproto hook.
+  The DID is what merges authoritatively — the placeholder `handle.invalid` (a
+  lost custom domain) is deliberately NOT emitted as a handle, or it would glue
+  every such account together. LOCAL-ONLY: the cloud sandbox's egress proxy
+  blocks the API host. Scale note: `getFollowers` returns everyone who follows
+  you (can be tens of thousands of strangers, not people you know) — `edge`
+  distinguishes those `follower`-only accounts from your `following`/`mutual`
+  people, and triage/enrichment should lean on it (privacy rule 4).
 - **Phone/vCard** (`.vcf` — Apple Contacts.app / iCloud "export vCard", Google,
   Outlook): `node scripts/convert-vcard.mjs [file.vcf ...]` (default
   `imports/contacts.vcf`). One `.vcf` holds any number of concatenated cards, so

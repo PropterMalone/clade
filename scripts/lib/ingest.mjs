@@ -542,3 +542,75 @@ export function vcardRecords(text) {
   }
   return { records, warnings }
 }
+
+// --- Bluesky (atproto) graph -------------------------------------------------
+// Unlike the file-export sources, Bluesky is a LIVE public API (no export):
+// scripts/convert-bluesky.mjs paginates app.bsky.graph.getFollows / getFollowers
+// and hands the raw profileView arrays here. This core is pure — the network
+// lives in the shell so it stays testable.
+//
+// DID is the permanent identity key: handles rotate, the DID doesn't, and it's
+// what the ADR-04 atproto roadmap anchors on — so sourceId derives from the DID,
+// and the handle lives in handles{} where a later rename won't orphan overlays.
+// `edge` (mutual/following/follower) is derived from presence in the two lists
+// and captured NOW — it's only knowable at ingest, before the relationship
+// changes (schema §5.5). Names are display names (pseudonymous-grade), so this
+// source is deliberately NOT in enrich-core's REAL_NAME_SOURCES.
+
+const BLUESKY_URL_RE = /https?:\/\/[^\s]+/g
+const blueskyRecord = (actor, edge) => {
+  const handle = String(actor.handle || '')
+  // `handle.invalid` is atproto's placeholder for an account whose handle no
+  // longer resolves — it is SHARED across every such account, so emitting it as
+  // a handle would make the resolver glue all of them into one person (same
+  // failure class as vCard's degenerate profile.php handle). The DID is the true
+  // identity and merges authoritatively, so drop the placeholder from handles{}.
+  const validHandle = handle && handle !== 'handle.invalid'
+  const bio = String(actor.description || '').trim()
+  // People put their site in the bio text — atproto profileView has no structured
+  // links field. Trailing punctuation is stripped so "see foo.com." doesn't stick.
+  const urls = [...new Set((bio.match(BLUESKY_URL_RE) || []).map((u) => u.replace(/[).,;]+$/, '')))]
+  return {
+    sourceId: slugify(actor.did),
+    name: String(actor.displayName || '').trim() || handle,
+    emails: [],
+    phones: [],
+    employer: '',
+    title: '',
+    urls,
+    handles: validHandle ? { bluesky: handle } : {},
+    did: String(actor.did),
+    edge,
+    bio,
+    labels: [],
+    connectedOn: '',
+    notes: '',
+  }
+}
+
+// (follows, followers) profileView arrays -> { records, warnings }. A DID in
+// both lists is a `mutual`; follows-only is `following`; followers-only is
+// `follower`. The same account appears in both lists for a mutual — dedup by DID.
+export function blueskyRecords(follows = [], followers = []) {
+  const warnings = []
+  const followDids = new Set(follows.map((a) => a?.did).filter(Boolean))
+  const followerDids = new Set(followers.map((a) => a?.did).filter(Boolean))
+  const byDid = new Map()
+  let noDid = 0
+  for (const actor of [...follows, ...followers]) {
+    if (!actor?.did) {
+      noDid++
+      continue
+    }
+    if (byDid.has(actor.did)) continue
+    const edge =
+      followDids.has(actor.did) && followerDids.has(actor.did)
+        ? 'mutual'
+        : followDids.has(actor.did)
+          ? 'following'
+          : 'follower'
+    byDid.set(actor.did, blueskyRecord(actor, edge))
+  }
+  if (noDid) warnings.push(`skipped ${noDid} actor(s) with no DID`)
+  return { records: [...byDid.values()], warnings }
+}
