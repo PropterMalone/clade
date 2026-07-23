@@ -305,3 +305,62 @@ test('validateEnrichmentBatch unwraps a {results: [...]} object response', () =>
   )
   assert.equal(out[0]?.profession, 'nurse')
 })
+
+// --- unit routing + outcome folding (extracted from the shell, angel f5) -------
+
+test('promptForUnit: solo-thin gets the prior, singleton-confirm gets the rich solo prompt without it', async () => {
+  const { promptForUnit } = await import('../scripts/lib/enrich-core.mjs')
+  const PRIOR = 'OWNER LIFE HISTORY'
+  const thin = promptForUnit({ kind: 'solo', contacts: [{ name: 'Jo Bee', keys: ['facebook:jo'] }] }, PRIOR)
+  assert.equal(thin.grouped, false)
+  assert.ok(thin.prompt.includes(PRIOR))
+  const single = promptForUnit(
+    { kind: 'confirm', contacts: [{ name: 'Jane Wilson', linkedinUrl: 'https://linkedin.com/in/jw', keys: ['linkedin:jw'] }] },
+    PRIOR,
+  )
+  assert.equal(single.grouped, false)
+  assert.ok(!single.prompt.includes(PRIOR), 'rich singleton must not receive the private prior')
+  assert.match(single.prompt, /verify it with 1-2 fetches/)
+  const grouped = promptForUnit(
+    { kind: 'confirm', contacts: [
+      { name: 'A A', linkedinUrl: 'https://linkedin.com/in/a', keys: ['linkedin:a'] },
+      { name: 'B B', linkedinUrl: 'https://linkedin.com/in/b', keys: ['linkedin:b'] },
+    ] },
+    PRIOR,
+  )
+  assert.equal(grouped.grouped, true)
+  assert.ok(!grouped.prompt.includes(PRIOR))
+  assert.match(grouped.prompt, /--- contact 2 ---/)
+  assert.ok(grouped.timeoutMs > single.timeoutMs)
+})
+
+test('foldUnit: keys align to contacts, banked results suppress fuzzy limitHit, exit-75 wins over parseable', async () => {
+  const { foldUnit } = await import('../scripts/lib/enrich-core.mjs')
+  const contacts = [
+    { name: 'A A', linkedinUrl: 'https://linkedin.com/in/a', keys: ['linkedin:a'] },
+    { name: 'B B', linkedinUrl: 'https://linkedin.com/in/b', keys: ['linkedin:b'] },
+  ]
+  const raw = [
+    { n: 1, confidence: 'high', profession: 'lawyer', linkedinUrl: 'https://linkedin.com/in/a' },
+    { n: 2, confidence: 'high', profession: 'nurse', linkedinUrl: 'https://linkedin.com/in/b' },
+  ]
+  const ok = foldUnit(contacts, true, raw, {})
+  assert.equal(ok.banked, 2)
+  assert.equal(ok.outcomes[0].key, 'linkedin:a')
+  assert.equal(ok.outcomes[0].result.profession, 'lawyer')
+  assert.equal(ok.outcomes[1].key, 'linkedin:b')
+  assert.equal(ok.outcomes[1].result.profession, 'nurse')
+  // partial bank + fuzzy limitHit → NOT a throttled unit (banked wins)
+  const partial = foldUnit(contacts, true, [raw[0]], { limitHit: true })
+  assert.equal(partial.limitHit, undefined)
+  assert.equal(partial.banked, 1)
+  assert.equal(partial.outcomes[1].failed, true)
+  // nothing banked + fuzzy limitHit → throttled
+  assert.deepEqual(foldUnit(contacts, true, null, { limitHit: true }), { limitHit: true })
+  // explicit exit-75 beats even a fully parseable response
+  assert.deepEqual(foldUnit(contacts, true, raw, { limitHitExplicit: true }), { limitHit: true })
+  // solo path folds a bare validated record
+  const solo = foldUnit([{ name: 'Jo', keys: ['facebook:jo'] }], false, { confidence: 'low', notes: 'thin' }, {})
+  assert.equal(solo.banked, 1)
+  assert.equal(solo.outcomes[0].key, 'facebook:jo')
+})

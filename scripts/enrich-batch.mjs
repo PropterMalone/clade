@@ -42,16 +42,14 @@ import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import {
-  buildConfirmBatchPrompt,
-  buildPrompt,
   clean,
+  foldUnit,
   isEnrichmentRecord,
   parseJsonBlock,
   planWork,
+  promptForUnit,
   seedScore,
   selectCandidatesFrom,
-  validateEnrichment,
-  validateEnrichmentBatch,
 } from './lib/enrich-core.mjs'
 import { runAgent } from './lib/agent.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
@@ -137,48 +135,37 @@ const backoffMs = (attempt) =>
   Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt) * (0.8 + Math.random() * 0.4)
 
 // One work unit = one agent session: a solo open-research contact, or a
-// confirm group sharing a session (see planWork). Returns { limitHit: true }
-// for a throttled unit, else { outcomes: [{ key, result } | { key, failed }] }.
+// confirm group sharing a session (see planWork). Routing, validation, and
+// outcome-folding are pure (promptForUnit/foldUnit in enrich-core, where the
+// exit-75/fuzzy-limit precedence rules live and are tested); this shell only
+// spawns, stamps, and warns. Returns { limitHit: true } for a throttled unit,
+// else { outcomes: [{ key, result } | { key, failed }] }.
 async function enrichUnit(unit) {
   const contacts = unit.contacts
-  const grouped = contacts.length > 1
+  const { prompt, grouped, timeoutMs } = promptForUnit(unit, prior)
   const { ok, text, limitHit, limitHitExplicit, stderr, err } = await runAgent({
-    prompt: grouped ? buildConfirmBatchPrompt(contacts) : buildPrompt(contacts[0], contacts[0].linkedinUrl ? '' : prior),
+    prompt,
     model: MODEL,
     claudeModelDefault: 'sonnet',
-    timeoutMs: (grouped ? 10 : 5) * 60 * 1000,
+    timeoutMs,
     maxBuffer: 16 * 1024 * 1024,
   })
-  // An explicit exit-75 is the adapter's deliberate "rate-limited, retry me"
-  // signal and wins even over a parseable stdout. The fuzzy LIMIT_HIT_RE heuristic
-  // (below) instead yields to a validated result — a bio echoing "rate limit" in a
-  // clean response must not be misread as a throttle.
-  if (limitHitExplicit) return { limitHit: true }
-  const raw = parseJsonBlock(text)
-  const perContact = grouped ? validateEnrichmentBatch(raw, contacts) : [validateEnrichment(raw)]
-  const outcomes = []
-  let banked = 0
-  for (let i = 0; i < contacts.length; i++) {
-    if (perContact[i]) {
-      banked++
-      outcomes.push({ key: contacts[i].keys[0], result: { ...perContact[i], enrichedAt: new Date().toISOString() } })
-    } else {
-      outcomes.push({ key: contacts[i].keys[0], failed: true })
-    }
-  }
-  if (banked === 0 && limitHit) return { limitHit: true }
+  const folded = foldUnit(contacts, grouped, parseJsonBlock(text), { limitHit, limitHitExplicit })
+  if (folded.limitHit) return folded
+  const enrichedAt = new Date().toISOString()
+  for (const o of folded.outcomes) if (o.result) o.result = { ...o.result, enrichedAt }
   // No parseable result — warn whether the process failed OR exited 0 with
   // unparseable output. The latter (a well-behaved-exit adapter that forgot the
   // ```json block) is an adapter author's likeliest first bug and was silent.
-  if (banked === 0) {
+  if (folded.banked === 0) {
     console.warn(
       `[enrich] ${contacts.map((c) => clean(c.name, 60)).join(', ')}: no usable result — ${ok ? 'agent exited 0 but output had no JSON block' : `agent failed: ${clean(stderr || err?.message || '', 200)}`}`,
     )
-  } else if (banked < contacts.length) {
+  } else if (folded.banked < contacts.length) {
     // Partial group result: the missing entries stay un-banked and retry later.
-    console.warn(`[enrich] confirm group returned ${banked}/${contacts.length} entries — the rest will be retried`)
+    console.warn(`[enrich] confirm group returned ${folded.banked}/${contacts.length} entries — the rest will be retried`)
   }
-  return { outcomes }
+  return folded
 }
 
 // Enrich one wave of units, retrying only rate-limited units with backoff.

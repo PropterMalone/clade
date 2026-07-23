@@ -219,6 +219,42 @@ Output ONLY a single fenced \`\`\`json block (nothing after it): an array with o
 Each entry's "linkedinUrl" MUST be the LinkedIn URL from that contact's own data block — it is the identity check binding your entry to the right person; an entry whose URL doesn't match its contact is discarded.`
 }
 
+// The exact agent call a work unit gets: grouped units take the confirm-batch
+// prompt (public-profile fields, longer timeout); solo units take the tiered
+// single-contact prompt, with the owner's life-history prior injected ONLY for
+// thin contacts — a linkedinUrl-bearing solo (the confirm remainder-of-1 case)
+// is a rich confirm and must not receive the private prior.
+export function promptForUnit(unit, prior) {
+  const contacts = unit.contacts
+  if (contacts.length > 1)
+    return { prompt: buildConfirmBatchPrompt(contacts), grouped: true, timeoutMs: 10 * 60 * 1000 }
+  const c = contacts[0]
+  return { prompt: buildPrompt(c, c.linkedinUrl ? '' : prior), grouped: false, timeoutMs: 5 * 60 * 1000 }
+}
+
+// Fold one unit's parsed agent response into per-contact outcomes.
+// An explicit exit-75 (limitHitExplicit) is the adapter's deliberate
+// "rate-limited, retry me" signal and wins even over a parseable response. The
+// fuzzy limitHit heuristic instead yields to any banked result — a bio echoing
+// "rate limit" in a clean response must not be misread as a throttle — so it
+// only marks the unit throttled when nothing banked.
+export function foldUnit(contacts, grouped, rawParsed, { limitHit = false, limitHitExplicit = false } = {}) {
+  if (limitHitExplicit) return { limitHit: true }
+  const perContact = grouped ? validateEnrichmentBatch(rawParsed, contacts) : [validateEnrichment(rawParsed)]
+  const outcomes = []
+  let banked = 0
+  for (let i = 0; i < contacts.length; i++) {
+    if (perContact[i]) {
+      banked++
+      outcomes.push({ key: contacts[i].keys[0], result: perContact[i] })
+    } else {
+      outcomes.push({ key: contacts[i].keys[0], failed: true }) // stays un-banked → retried next run
+    }
+  }
+  if (banked === 0 && limitHit) return { limitHit: true }
+  return { outcomes, banked }
+}
+
 // The /in/<slug> of a LinkedIn profile URL, lowercased — the identity the
 // confirm tier is actually checking. null for anything else.
 export const linkedinSlug = (u) => {
