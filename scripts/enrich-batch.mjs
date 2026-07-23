@@ -17,8 +17,16 @@
 // Flags:  --limit N        max contacts this run (default 25 — a comfortable
 //                          single-session bite; raise once you know your quota)
 //         --concurrency N  parallel agent calls (default 3)
+//         --model M        model for the research sessions (claude mode defaults
+//                          to a fast model — identification is retrieval work)
 //         --dry-run        print the selection, no agent calls
 //         --max-retries N  backoff retries when rate-limited (default 4)
+//
+// Cost shape: contacts that already carry a LinkedIn URL are cheap 1-2-fetch
+// confirms, so they share sessions in groups (enrich-core planWork) to amortize
+// per-session overhead; open-ended research runs solo. The owner's life-history
+// prior is injected only for solo (thin) contacts — era disambiguation is
+// useless when a profile URL is already in hand.
 //
 // A lockfile (.enrich-lock) refuses concurrent runs — two runs would pay for
 // the same candidates. Hitting the provider's usage limit mid-run is
@@ -34,13 +42,16 @@ import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import {
+  buildConfirmBatchPrompt,
   buildPrompt,
   clean,
   isEnrichmentRecord,
   parseJsonBlock,
+  planWork,
   seedScore,
   selectCandidatesFrom,
   validateEnrichment,
+  validateEnrichmentBatch,
 } from './lib/enrich-core.mjs'
 import { runAgent } from './lib/agent.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
@@ -58,6 +69,7 @@ const flag = (name, def) => {
 }
 const LIMIT = Number(flag('--limit', '25'))
 const CONCURRENCY = Number(flag('--concurrency', '3'))
+const MODEL = flag('--model', null) // explicit override only — never clobbers CLADE_AGENT_MODEL
 const DRY = argv.includes('--dry-run')
 const MAX_RETRIES = Number(flag('--max-retries', '4'))
 const BACKOFF_BASE_MS = 20_000
@@ -124,57 +136,81 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const backoffMs = (attempt) =>
   Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt) * (0.8 + Math.random() * 0.4)
 
-async function enrichOne(c) {
+// One work unit = one agent session: a solo open-research contact, or a
+// confirm group sharing a session (see planWork). Returns { limitHit: true }
+// for a throttled unit, else { outcomes: [{ key, result } | { key, failed }] }.
+async function enrichUnit(unit) {
+  const contacts = unit.contacts
+  const grouped = contacts.length > 1
   const { ok, text, limitHit, limitHitExplicit, stderr, err } = await runAgent({
-    prompt: buildPrompt(c, prior),
-    timeoutMs: 5 * 60 * 1000,
+    prompt: grouped ? buildConfirmBatchPrompt(contacts) : buildPrompt(contacts[0], contacts[0].linkedinUrl ? '' : prior),
+    model: MODEL,
+    claudeModelDefault: 'sonnet',
+    timeoutMs: (grouped ? 10 : 5) * 60 * 1000,
     maxBuffer: 16 * 1024 * 1024,
   })
   // An explicit exit-75 is the adapter's deliberate "rate-limited, retry me"
   // signal and wins even over a parseable stdout. The fuzzy LIMIT_HIT_RE heuristic
   // (below) instead yields to a validated result — a bio echoing "rate limit" in a
   // clean response must not be misread as a throttle.
-  if (limitHitExplicit) return { key: c.keys[0], limitHit: true }
-  const parsed = validateEnrichment(parseJsonBlock(text))
-  if (parsed) {
-    return { key: c.keys[0], result: { ...parsed, enrichedAt: new Date().toISOString() } }
+  if (limitHitExplicit) return { limitHit: true }
+  const raw = parseJsonBlock(text)
+  const perContact = grouped ? validateEnrichmentBatch(raw, contacts.length) : [validateEnrichment(raw)]
+  const outcomes = []
+  let banked = 0
+  for (let i = 0; i < contacts.length; i++) {
+    if (perContact[i]) {
+      banked++
+      outcomes.push({ key: contacts[i].keys[0], result: { ...perContact[i], enrichedAt: new Date().toISOString() } })
+    } else {
+      outcomes.push({ key: contacts[i].keys[0], failed: true })
+    }
   }
-  if (limitHit) return { key: c.keys[0], limitHit: true }
+  if (banked === 0 && limitHit) return { limitHit: true }
   // No parseable result — warn whether the process failed OR exited 0 with
   // unparseable output. The latter (a well-behaved-exit adapter that forgot the
   // ```json block) is an adapter author's likeliest first bug and was silent.
-  console.warn(
-    `[enrich] ${clean(c.name, 60)}: no usable result — ${ok ? 'agent exited 0 but output had no JSON block' : `agent failed: ${clean(stderr || err?.message || '', 200)}`}`,
-  )
-  return { key: c.keys[0], failed: true }
+  if (banked === 0) {
+    console.warn(
+      `[enrich] ${contacts.map((c) => clean(c.name, 60)).join(', ')}: no usable result — ${ok ? 'agent exited 0 but output had no JSON block' : `agent failed: ${clean(stderr || err?.message || '', 200)}`}`,
+    )
+  } else if (banked < contacts.length) {
+    // Partial group result: the missing entries stay un-banked and retry later.
+    console.warn(`[enrich] confirm group returned ${banked}/${contacts.length} entries — the rest will be retried`)
+  }
+  return { outcomes }
 }
 
-// Enrich one batch, retrying only rate-limited contacts with backoff. Successful
-// results persist across retries. Returns { results, resolved, stop }.
-async function runBatch(batch) {
+// Enrich one wave of units, retrying only rate-limited units with backoff.
+// Successful results persist across retries. Returns { results, resolved, stop }.
+async function runBatch(units) {
   const results = {}
   let resolved = 0
-  let pending = batch
+  let pending = units
 
   for (let attempt = 0; ; attempt++) {
-    const outcomes = await Promise.all(pending.map(enrichOne))
+    const unitOutcomes = await Promise.all(pending.map(enrichUnit))
     const throttled = []
-    for (let k = 0; k < outcomes.length; k++) {
-      const o = outcomes[k]
-      if (o.result) {
-        results[o.key] = o.result
-        if (['high', 'medium'].includes(o.result.confidence)) resolved++
-      } else if (o.limitHit) {
+    for (let k = 0; k < unitOutcomes.length; k++) {
+      const u = unitOutcomes[k]
+      if (u.limitHit) {
         throttled.push(pending[k])
+        continue
       }
-      // o.failed → drop; stays un-banked, first in line next run.
+      for (const o of u.outcomes) {
+        if (o.result) {
+          results[o.key] = o.result
+          if (['high', 'medium'].includes(o.result.confidence)) resolved++
+        }
+        // o.failed → drop; stays un-banked, first in line next run.
+      }
     }
     if (throttled.length === 0) return { results, resolved, stop: false }
     if (attempt >= MAX_RETRIES) {
       return { results, resolved, stop: true, stopReason: `usage limit persisted through ${MAX_RETRIES} backoff retries — likely out of quota for this window; re-run later, it resumes automatically` }
     }
     const wait = backoffMs(attempt)
-    console.log(`[enrich] rate-limited on ${throttled.length} — backing off ${(wait / 1000).toFixed(0)}s (retry ${attempt + 1}/${MAX_RETRIES})`)
+    console.log(`[enrich] rate-limited on ${throttled.length} session(s) — backing off ${(wait / 1000).toFixed(0)}s (retry ${attempt + 1}/${MAX_RETRIES})`)
     await sleep(wait)
     pending = throttled
   }
@@ -193,20 +229,21 @@ async function main() {
   }
   acquireLock()
   candidates = candidates.slice(0, LIMIT)
+  const units = planWork(candidates)
 
   let done = 0
   let resolved = 0
   let stoppedReason = 'batch complete'
 
-  for (let i = 0; i < candidates.length; i += CONCURRENCY) {
+  for (let i = 0; i < units.length; i += CONCURRENCY) {
     if (existsSync(STOP_FILE)) {
       stoppedReason = 'stop-file present (.stop-enrichment)'
       break
     }
-    const batch = candidates.slice(i, i + CONCURRENCY)
-    const r = await runBatch(batch)
+    const wave = units.slice(i, i + CONCURRENCY)
+    const r = await runBatch(wave)
     resolved += r.resolved
-    done += batch.length
+    done += wave.reduce((s, u) => s + u.contacts.length, 0)
 
     if (Object.keys(r.results).length > 0) {
       // pid suffix: concurrent/rapid runs must never overwrite each other's batch

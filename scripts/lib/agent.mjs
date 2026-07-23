@@ -2,8 +2,9 @@
 // Runs the configured agent provider for one prompt (docs/byo-model.md).
 // Pure config/classification lives in agent-core.mjs; this file only spawns.
 //
-// Default (no CLADE_AGENT_CMD): the built-in `claude -p` invocation, byte-identical
-// to Clade's original enrichment call. Custom: any executable that reads the prompt
+// Default (no CLADE_AGENT_CMD): the built-in `claude -p` invocation (research-only
+// tool allowlist; callers may pass a claude-mode-only fast-model default). Custom:
+// any executable that reads the prompt
 // on stdin and prints the agent's text response on stdout (exit 0 = ok, exit 75 =
 // retryable/rate-limited, other non-zero = failed).
 

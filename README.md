@@ -28,10 +28,12 @@ runs in resumable batches that stop cleanly whenever you close the lid.
 
 ## What you need
 
-1. **An AI coding agent.** [Claude Code](https://claude.com/claude-code) with a
-   paid plan is the tested, first-class path — a Max plan's spare capacity is
-   plenty, since enrichment happily runs in small batches over days. Other
-   agent CLIs should cope too: the whole "app" is a markdown operating manual
+1. **An AI coding agent.** [Claude Code](https://claude.com/claude-code) is the
+   tested, first-class path, and **any paid Claude plan is enough — including
+   the $20 Pro plan**: enrichment defaults to a fast model and runs in small
+   resumable batches sized to whatever quota you have spare, so a bigger plan
+   just means bigger batches, not a different product. Other agent CLIs should
+   cope too: the whole "app" is a markdown operating manual
    ([CLAUDE.md](CLAUDE.md), mirrored for other agents as
    [AGENTS.md](AGENTS.md)) plus zero-dependency Node scripts, and the
    web-research step is pluggable — point it at any web-capable model (see

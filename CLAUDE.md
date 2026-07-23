@@ -234,6 +234,14 @@ there across days, sized to whatever quota the owner has spare. Default
 `--limit 25 --concurrency 3` is a safe single-session bite; hitting the
 provider's usage limit mid-run is expected and stops cleanly.
 
+Token economy (why any paid plan, Pro included, is enough): claude-mode
+research runs on a fast model by default (`--model` to override); contacts
+that already carry a LinkedIn URL are cheap 1-2-fetch confirms and share a
+session in groups of 4 (`planWork` in `enrich-core.mjs`), while thin contacts
+run solo with the life-history prior injected; the search budget is tiered
+(1-2 fetches for URL-confirms, up to 5 searches for open research, stop at
+corroboration).
+
 Before the first-ever run, confirm `profile/about-me.md` exists (step 0) —
 enrichment quality for name-only contacts depends on it.
 

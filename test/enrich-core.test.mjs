@@ -4,15 +4,19 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  buildConfirmBatchPrompt,
   buildPrompt,
   clean,
+  CONFIRM_GROUP_SIZE,
   isEnrichmentRecord,
   isKeyShapedName,
   parseJsonBlock,
+  planWork,
   safeUrls,
   seedScore,
   selectCandidatesFrom,
   validateEnrichment,
+  validateEnrichmentBatch,
 } from '../scripts/lib/enrich-core.mjs'
 
 // 9. parseJsonBlock / seedScore
@@ -162,4 +166,53 @@ test('validateCueBatchVerdicts aligns by n and degrades to unsure', async () => 
   assert.deepEqual(out.map((v) => v.verdict), ['unsure', 'yes', 'unsure'])
   assert.equal(out[1].evidence, 'roster')
   assert.deepEqual(validateCueBatchVerdicts(null, 2).map((v) => v.verdict), ['unsure', 'unsure'])
+})
+
+// --- token economy: tiered search budget + confirm batching --------------------
+
+test('buildPrompt tiers the search budget by seed richness', () => {
+  const rich = buildPrompt({ name: 'Jane Wilson', linkedinUrl: 'https://linkedin.com/in/jw' })
+  assert.match(rich, /verify it with 1-2 fetches/)
+  const thin = buildPrompt({ name: 'Jane Wilson' })
+  assert.match(thin, /up to 5 web searches/)
+  for (const p of [rich, thin]) assert.match(p, /STOP as soon as you have corroboration/)
+})
+
+test('planWork groups linkedinUrl contacts into confirm units, keeps thin solo', () => {
+  const rich = (i) => ({ name: `R${i}`, linkedinUrl: `https://linkedin.com/in/r${i}`, keys: [`linkedin:r${i}`] })
+  const thin = (i) => ({ name: `T${i}`, keys: [`facebook:t${i}`] })
+  const units = planWork([rich(1), rich(2), thin(1), rich(3), rich(4), rich(5), thin(2)])
+  const kinds = units.map((u) => `${u.kind}:${u.contacts.length}`)
+  // 5 rich → one full group of CONFIRM_GROUP_SIZE + a remainder group; thin stay
+  // solo and keep their place in the richest-first order
+  assert.deepEqual(kinds, ['solo:1', `confirm:${CONFIRM_GROUP_SIZE}`, 'solo:1', 'confirm:1'])
+  assert.deepEqual(units[1].contacts.map((c) => c.name), ['R1', 'R2', 'R3', 'R4'])
+})
+
+test('buildConfirmBatchPrompt numbers contacts inside the fence and forbids cross-contamination', () => {
+  const p = buildConfirmBatchPrompt([
+    { name: 'Jane Wilson', linkedinUrl: 'https://linkedin.com/in/jw', urls: ['https://linkedin.com/in/jw'] },
+    { name: 'John Smith', linkedinUrl: 'https://linkedin.com/in/js', urls: ['https://linkedin.com/in/js'] },
+  ])
+  assert.match(p, /BEGIN CONTACT DATA \(untrusted\)/)
+  assert.match(p, /--- contact 1 ---/)
+  assert.match(p, /--- contact 2 ---/)
+  assert.match(p, /never carry a fact from one contact to another/i)
+  assert.match(p, /"n": 1/)
+})
+
+test('validateEnrichmentBatch aligns by n and degrades bad entries to null', () => {
+  const out = validateEnrichmentBatch(
+    [
+      { n: 2, confidence: 'high', profession: 'lawyer' },
+      { n: 99, confidence: 'high' }, // out of range — ignored
+      { n: 'x', confidence: 'high' }, // malformed n — ignored
+    ],
+    3,
+  )
+  assert.equal(out[0], null)
+  assert.equal(out[1].profession, 'lawyer')
+  assert.equal(out[2], null)
+  // non-array garbage → all null, nothing banked
+  assert.deepEqual(validateEnrichmentBatch('junk', 2), [null, null])
 })

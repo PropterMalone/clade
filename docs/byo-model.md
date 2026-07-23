@@ -51,8 +51,11 @@ warning rather than silently mis-split.)
 
 `CLADE_AGENT_MODEL` is a hint for **custom adapters only** — it does not affect
 the default Claude path. With `CLADE_AGENT_CMD` unset, Clade uses the built-in
-Claude invocation unchanged: `claude -p <prompt> --output-format text
---allowedTools WebSearch,WebFetch`.
+Claude invocation: `claude -p <prompt> --output-format text
+--allowedTools WebSearch,WebFetch`, plus a claude-mode-only fast-model default
+supplied by the calling script (enrich-batch and cue-tag both default to a
+fast model there; their `--model` flags override it). Your custom adapter
+never receives that claude-mode default — only your own `CLADE_AGENT_MODEL`.
 
 ## Example adapter
 
