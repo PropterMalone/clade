@@ -358,7 +358,7 @@ test('blueskyRecords derives edge from set membership: mutual / following / foll
   assert.equal(records.length, 3, 'the mutual appears in both lists but is one record')
 })
 
-test('blueskyRecords: sourceId from DID, handle in handles, displayName fallback, bio + bio-URL', async () => {
+test('blueskyRecords: sourceId from DID, handle in handles, displayName fallback, bio kept', async () => {
   const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
   const { records } = blueskyRecords(
     [bskyActor('did:plc:xyz', 'jane.example.com', 'Jane Q', 'Policy nerd. Site: https://jane.example.com.')],
@@ -369,8 +369,20 @@ test('blueskyRecords: sourceId from DID, handle in handles, displayName fallback
   assert.equal(r.did, 'did:plc:xyz') // raw DID preserved (the permanent key)
   assert.deepEqual(r.handles, { bluesky: 'jane.example.com' })
   assert.equal(r.name, 'Jane Q')
-  assert.equal(r.bio, 'Policy nerd. Site: https://jane.example.com.')
-  assert.deepEqual(r.urls, ['https://jane.example.com']) // extracted, trailing period stripped
+  assert.equal(r.bio, 'Policy nerd. Site: https://jane.example.com.') // URL stays in bio (searchable)
+  assert.deepEqual(r.urls, []) // NOT scraped into the merge-eligible urls[] — see C1 guard
+})
+
+test('blueskyRecords: a LinkedIn URL in a bio does NOT become a merge key (C1 attacker-merge guard)', async () => {
+  const { blueskyRecords } = await import('../scripts/lib/ingest.mjs')
+  // A follower-stranger citing a real contact's LinkedIn slug in their bio must
+  // not gain a merge-eligible urls[] entry that resolve.mjs would union on.
+  const { records } = blueskyRecords(
+    [bskyActor('did:plc:attacker', 'rando.bsky.social', 'Rando', 'huge fan of https://www.linkedin.com/in/janewilson')],
+    [],
+  )
+  assert.deepEqual(records[0].urls, [], 'bio-cited LinkedIn URL must not enter urls[]')
+  assert.ok(records[0].bio.includes('linkedin.com/in/janewilson'), 'still visible in bio for search')
 })
 
 test('blueskyRecords: name falls back to handle when displayName is empty', async () => {

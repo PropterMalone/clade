@@ -557,7 +557,6 @@ export function vcardRecords(text) {
 // changes (schema §5.5). Names are display names (pseudonymous-grade), so this
 // source is deliberately NOT in enrich-core's REAL_NAME_SOURCES.
 
-const BLUESKY_URL_RE = /https?:\/\/[^\s]+/g
 const blueskyRecord = (actor, edge) => {
   const handle = String(actor.handle || '')
   // `handle.invalid` is atproto's placeholder for an account whose handle no
@@ -567,9 +566,6 @@ const blueskyRecord = (actor, edge) => {
   // identity and merges authoritatively, so drop the placeholder from handles{}.
   const validHandle = handle && handle !== 'handle.invalid'
   const bio = String(actor.description || '').trim()
-  // People put their site in the bio text — atproto profileView has no structured
-  // links field. Trailing punctuation is stripped so "see foo.com." doesn't stick.
-  const urls = [...new Set((bio.match(BLUESKY_URL_RE) || []).map((u) => u.replace(/[).,;]+$/, '')))]
   return {
     sourceId: slugify(actor.did),
     name: String(actor.displayName || '').trim() || handle,
@@ -577,7 +573,17 @@ const blueskyRecord = (actor, edge) => {
     phones: [],
     employer: '',
     title: '',
-    urls,
+    // `urls` is DELIBERATELY empty for Bluesky. atproto profileView has no
+    // self-asserted structured link field — the only URLs are free text in the
+    // bio, written by whoever controls the account (and getFollowers pulls tens
+    // of thousands of strangers). resolve.mjs treats urls[] as an AUTHORITATIVE,
+    // uncorroborated merge key (a linkedin.com/in URL unions unconditionally), so
+    // scraping bio URLs into urls[] let any follower force-merge their account
+    // onto a real contact by citing that contact's LinkedIn slug in their bio
+    // (angel Run-1 C1, 2026-07-23). The URLs remain in `bio` (searchable); they
+    // are just never a merge key. Only add a URL here from a future first-party,
+    // self-asserted profile field, never from bio prose.
+    urls: [],
     handles: validHandle ? { bluesky: handle } : {},
     did: String(actor.did),
     edge,
