@@ -69,7 +69,11 @@ export function selectCandidatesFrom(index, attempted) {
 // Display names from social platforms are claims, not identities — Facebook
 // names are often partial or pseudonymous ("Jane Em", joke names), Bluesky/
 // Twitter doubly so. Only flag real-name-grade sources as such.
-const REAL_NAME_SOURCES = new Set(['linkedin', 'google-contacts', 'gmail', 'phone', 'manual'])
+// NEW-SOURCE ENROLLMENT POINT: every converter's `source` string that carries
+// real (address-book / legal) names must be listed here, or its contacts get
+// the "may be pseudonymous" caveat and enrichment researches them more warily.
+// `vcard` is an Apple/Google address book — real-name-grade like `phone`.
+const REAL_NAME_SOURCES = new Set(['linkedin', 'google-contacts', 'gmail', 'phone', 'vcard', 'manual'])
 
 // confirm: true builds the narrowed block for shared confirm-group sessions —
 // public-profile fields only. The owner-private overlay (attested relationship/

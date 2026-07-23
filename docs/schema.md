@@ -8,7 +8,7 @@ is always regenerable — never hand-edit it.
 ## 1. Normalized source files — `contacts/normalized/<source>.json`
 
 One file per source (`linkedin.json`, `facebook.json`, `gmail.json`,
-`google-contacts.json`, `bluesky.json`, `phone.json`, ...). Produced by parsing
+`google-contacts.json`, `bluesky.json`, `vcard.json`, `phone.json`, ...). Produced by parsing
 whatever raw export landed in `imports/`. Shape:
 
 ```json

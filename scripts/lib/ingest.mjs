@@ -300,3 +300,245 @@ export function googleContactsRecords(csvText) {
   }
   return { records, warnings }
 }
+
+// --- vCard (.vcf) export ------------------------------------------------------
+// Apple Contacts.app / iCloud, Google, and Outlook all export vCard. A .vcf is
+// one or more BEGIN:VCARD…END:VCARD cards. Real-world quirks a naive line-split
+// mangles: RFC-6350 line FOLDING (a long value — a NOTE, or a base64 PHOTO blob
+// — wraps onto continuation lines that begin with one space/tab; unfold before
+// anything else or a folded value bleeds into the next property), Apple's
+// `itemN.PROP` prefixes (the prefix is stripped so `item1.EMAIL` parses as
+// EMAIL; the paired `item1.X-ABLabel` custom label is NOT yet consumed — see
+// the follow-up note on `group` in parseVcardLine), backslash escaping inside
+// values (\, \; \n \\), and `;`-delimited structured N/ORG components. Parse the
+// container properly, once.
+
+// Unfold continuation lines and normalize CRLF/CR to LF. A newline followed by
+// a single space or tab is a fold marker, not a value boundary — drop both.
+// BOM is stripped globally (not just leading): the shell concatenates several
+// .vcf files, so a BOM at the start of the 2nd+ file lands mid-stream, where it
+// would break the `^BEGIN:VCARD` line match and silently swallow that card.
+// the `\uFEFF` escape (not a literal BOM) so a formatter can't strip it invisibly.
+const unfoldVcard = (text) => String(text).replace(/\uFEFF/g, '').replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '')
+
+// Reverse vCard text escaping (\n/\N → newline, \, \; \\ → the literal char).
+const unescapeVcard = (v) =>
+  String(v).replace(/\\([nN,;\\])/g, (_, c) => (c === 'n' || c === 'N' ? '\n' : c))
+
+// Split on unescaped `sep` (for structured N/ORG). Escape sequences are left
+// intact in the pieces so the caller can unescape each one.
+const splitVcardStructured = (value, sep) => {
+  const out = []
+  let cur = ''
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === '\\') {
+      cur += value[i] + (value[i + 1] ?? '')
+      i++
+    } else if (value[i] === sep) {
+      out.push(cur)
+      cur = ''
+    } else cur += value[i]
+  }
+  out.push(cur)
+  return out
+}
+
+// Parse one content line into { prop, group, params, value }. Property and
+// param names are case-insensitive (uppercased); a `itemN.` group prefix is
+// split off. TYPE params (comma- or repeated-`;`-separated, quoted or bare —
+// vCard 2.1 writes bare `TEL;CELL:`) collect into params.type[].
+const parseVcardLine = (line) => {
+  const colon = line.indexOf(':')
+  if (colon === -1) return null
+  const segs = line.slice(0, colon).split(';')
+  let prop = segs[0]
+  let group = null
+  const dot = prop.indexOf('.')
+  if (dot !== -1) {
+    group = prop.slice(0, dot).toLowerCase()
+    prop = prop.slice(dot + 1)
+  }
+  const params = {}
+  for (const p of segs.slice(1)) {
+    const eq = p.indexOf('=')
+    if (eq === -1) (params.type ||= []).push(p.toLowerCase())
+    else {
+      const k = p.slice(0, eq).toLowerCase()
+      const raw = p.slice(eq + 1)
+      if (k === 'type') (params.type ||= []).push(...raw.split(',').map((x) => x.toLowerCase().replace(/^"|"$/g, '')))
+      else params[k] = raw.replace(/^"|"$/g, '')
+    }
+  }
+  // `group` (the itemN. prefix) is retained but not yet consumed — wiring it to
+  // pair `itemN.X-ABLabel` custom labels onto the grouped property is a follow-up.
+  return { prop: prop.toUpperCase(), group, params, value: line.slice(colon + 1) }
+}
+
+// Fold an X-SOCIALPROFILE / IMPP line into the card. Service is the non-generic
+// TYPE (twitter/facebook/…) or X-SERVICE-TYPE; the handle is X-USER, else the
+// value with a profile URL reduced to its last path segment, or a bare
+// `scheme:` URI (skype:user, xmpp:user@host) stripped of its scheme. An http(s)
+// value is ALSO pushed into urls[] so the resolver's URL-derived merge keys
+// (linkedin: etc.) still fire — it keys those off urls[], not handles.
+//
+// Degenerate URL segments are REJECTED rather than emitted as a handle:
+// `facebook.com/profile.php?id=123` reduces to a shared "profile.php" that the
+// resolver would treat as an authoritative merge key and use to glue every
+// contact carrying that URL form into one person. Prefer the identifying `id=`
+// query param; refuse any segment that still looks non-identifying (contains a
+// dot, e.g. `profile.php`) or an empty segment (a bare host).
+const GENERIC_TYPE = new Set(['pref', 'home', 'work', 'other', 'internet', 'voice', 'cell', 'main'])
+const addVcardHandle = (c, p) => {
+  const service = (p.params['x-service-type'] || (p.params.type || []).find((t) => !GENERIC_TYPE.has(t)) || '').toLowerCase()
+  const rawVal = unescapeVcard(p.value).trim()
+  if (/^https?:\/\//i.test(rawVal) && !c.urls.includes(rawVal)) c.urls.push(rawVal)
+  if (!service) return
+  const xuser = (p.params['x-user'] || '').trim()
+  let handle
+  if (xuser) {
+    handle = xuser
+  } else if (/^https?:\/\//i.test(rawVal)) {
+    const m = /^https?:\/\/[^/]+\/(?:.*\/)?([^/?#]*)(?:\?([^#]*))?/i.exec(rawVal)
+    const idParam = m && m[2] && /(?:^|&)id=([^&]+)/i.exec(m[2])
+    let seg = idParam ? idParam[1] : m ? m[1] : ''
+    try {
+      seg = decodeURIComponent(seg)
+    } catch {
+      /* malformed %-escape — keep the raw segment rather than throwing */
+    }
+    if (!seg || seg.includes('.')) return // non-identifying: bare host, or "profile.php"-style
+    handle = seg
+  } else {
+    handle = rawVal.replace(/^[a-z][a-z0-9+.-]*:/i, '') // bare-scheme URI → drop the scheme
+  }
+  handle = handle.replace(/^@/, '').trim().toLowerCase()
+  if (handle && !c.handles[service]) c.handles[service] = handle
+}
+
+// Extract the fields we keep from one card's content lines. PHOTO, ADR, BDAY,
+// VERSION, PRODID, X-ABUID and friends are intentionally dropped — a rolodex
+// doesn't need them, and PHOTO in particular is a multi-KB base64 blob.
+function parseVcard(lines) {
+  const c = { fn: '', n: null, emails: [], phones: [], urls: [], org: '', title: '', notes: '', uid: '', handles: {}, labels: [] }
+  let qpSeen = false
+  for (const line of lines) {
+    const p = parseVcardLine(line)
+    if (!p) continue
+    // vCard 2.1 writes quoted-printable either as ENCODING=QUOTED-PRINTABLE or
+    // the bare-param shorthand `FN;QUOTED-PRINTABLE:` (→ params.type). Detect both.
+    if (/quoted-printable/i.test(p.params.encoding || '') || (p.params.type || []).includes('quoted-printable')) qpSeen = true
+    switch (p.prop) {
+      case 'FN': c.fn = unescapeVcard(p.value).trim(); break
+      case 'N': c.n = splitVcardStructured(p.value, ';').map((s) => unescapeVcard(s).trim()); break
+      // Strip a `mailto:`/`tel:` URI scheme — otherwise it corrupts the value AND
+      // the resolver's merge key (email:mailto:x@y never matches email:x@y).
+      case 'EMAIL': { const e = unescapeVcard(p.value).trim().replace(/^mailto:/i, ''); if (e) c.emails.push(e); break }
+      case 'TEL': { const t = unescapeVcard(p.value).trim().replace(/^tel:/i, ''); if (t) c.phones.push(t); break }
+      case 'URL':
+      case 'X-URL': { const u = p.value.trim(); if (u) c.urls.push(u); break } // URI-typed: not backslash-escaped per RFC 6350
+      case 'ORG': if (!c.org) c.org = splitVcardStructured(p.value, ';').map((s) => unescapeVcard(s).trim()).find(Boolean) || ''; break
+      case 'TITLE': if (!c.title) c.title = unescapeVcard(p.value).trim(); break
+      case 'NOTE': if (!c.notes) c.notes = unescapeVcard(p.value).trim(); break
+      case 'UID': if (!c.uid) c.uid = p.value.trim().replace(/^urn:uuid:/i, ''); break
+      // Drop Google's signal-free system groups (myContacts/starred), same as the CSV path.
+      case 'CATEGORIES': c.labels.push(...splitVcardStructured(p.value, ',').map((s) => unescapeVcard(s).trim()).filter((l) => l && !['myContacts', 'starred'].includes(l))); break
+      case 'X-SOCIALPROFILE':
+      case 'IMPP': addVcardHandle(c, p); break
+    }
+  }
+  return { card: c, qpSeen }
+}
+
+// A whole .vcf (possibly many concatenated exports) -> { records, warnings }.
+// sourceId prefers the card's own UID (stable across re-exports even if the
+// name changes — the vCard analog of LinkedIn's URL slug), falling back to the
+// name slug with a numeric disambiguator.
+export function vcardRecords(text) {
+  const unfolded = unfoldVcard(text)
+  if (!/BEGIN:VCARD/i.test(unfolded)) {
+    return { records: [], warnings: ['no BEGIN:VCARD found — is this a .vcf export?'] }
+  }
+  const warnings = []
+  // Flat BEGIN/END scan. A BEGIN arriving before the previous card's END means
+  // either a truncated card (missing END) or an embedded 2.1 AGENT card; salvage
+  // what accumulated and warn rather than silently dropping the outer card.
+  const blocks = []
+  let cur = null
+  for (const line of unfolded.split('\n')) {
+    if (/^BEGIN:VCARD\s*$/i.test(line)) {
+      if (cur && cur.length) {
+        warnings.push('BEGIN:VCARD before END:VCARD — an embedded/AGENT card or a missing END:VCARD; parsing the cards separately')
+        blocks.push(cur)
+      }
+      cur = []
+    } else if (/^END:VCARD\s*$/i.test(line)) {
+      if (cur) blocks.push(cur)
+      cur = null
+    } else if (cur) cur.push(line)
+  }
+  if (cur && cur.length) {
+    warnings.push('file ended mid-card (no END:VCARD) — the last card may be incomplete')
+    blocks.push(cur)
+  }
+
+  const records = []
+  const usedIds = new Set()
+  const seenUids = new Set()
+  let qpWarned = false
+  for (const lines of blocks) {
+    let parsed
+    try {
+      parsed = parseVcard(lines)
+    } catch (err) {
+      warnings.push(`skipping a card that failed to parse: ${err.message}`)
+      continue
+    }
+    const { card, qpSeen } = parsed
+    if (qpSeen && !qpWarned) {
+      warnings.push('quoted-printable values seen (vCard 2.1) — not decoded; re-export as vCard 3.0/4.0 if fields look garbled')
+      qpWarned = true
+    }
+    // Same UID = the same card imported twice (the natural case when several
+    // overlapping exports are concatenated). Keep the first; a suffixed second
+    // record would split one person and orphan overlays on the losing key.
+    if (card.uid) {
+      if (seenUids.has(card.uid)) {
+        warnings.push(`duplicate UID ${card.uid} — same card appears twice in the input; keeping the first`)
+        continue
+      }
+      seenUids.add(card.uid)
+    }
+    const assembledN = card.n ? [card.n[1], card.n[2], card.n[0]].filter(Boolean).join(' ').trim() : ''
+    const name = card.fn || assembledN
+    const emails = []
+    for (const e of card.emails) {
+      if (looksLikeEmail(e)) emails.push(e)
+      else warnings.push(`${name || '(unnamed)'}: dropping non-email EMAIL value ${JSON.stringify(e).slice(0, 60)}`)
+    }
+    if (!name && emails.length === 0) {
+      const hint = card.uid ? ` (UID ${card.uid})` : card.phones[0] ? ` (phone ${card.phones[0]})` : card.org ? ` (org ${card.org})` : ''
+      warnings.push(`skipping card with no name and no email${hint}`)
+      continue
+    }
+    const displayName = name || emails[0].split('@')[0]
+    const idBase = slugify(card.uid) || slugify(displayName) || 'contact'
+    let sourceId = idBase
+    for (let n = 2; usedIds.has(sourceId); n++) sourceId = `${idBase}-${n}`
+    usedIds.add(sourceId)
+    records.push({
+      sourceId,
+      name: displayName,
+      emails: [...new Set(emails)],
+      phones: [...new Set(card.phones)],
+      employer: card.org,
+      title: card.title,
+      urls: [...new Set(card.urls)],
+      handles: card.handles,
+      bio: '',
+      labels: [...new Set(card.labels)],
+      connectedOn: '',
+      notes: card.notes,
+    })
+  }
+  return { records, warnings }
+}

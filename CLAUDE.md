@@ -43,7 +43,8 @@ normalized or overlay file.
 ## Commands
 
 - `node scripts/convert-linkedin.mjs` / `convert-google.mjs` /
-  `convert-facebook.mjs` — parse the standard exports into normalized sources
+  `convert-facebook.mjs` / `convert-vcard.mjs` — parse the standard exports into
+  normalized sources
 - `node scripts/build-index.mjs` — rebuild the unified index (run after any
   change to normalized sources or overlay files)
 - `node search.mjs <query>` / `--domain <tag>` / `--stats` — query the index
@@ -163,7 +164,21 @@ Known export shapes (verify against the actual file — these drift):
   Also derive and store `edge` (`mutual`/`following`/`follower`) from presence in
   the follows vs. followers lists — capture it at ingest; it's lost if the
   relationship changes before a later query (schema.md §5.5).
-- **Phone/vCard**: parse `.vcf` directly.
+- **Phone/vCard** (`.vcf` — Apple Contacts.app / iCloud "export vCard", Google,
+  Outlook): `node scripts/convert-vcard.mjs [file.vcf ...]` (default
+  `imports/contacts.vcf`). One `.vcf` holds any number of concatenated cards, so
+  a whole address book — the common case is a cmd-A "Export vCard" of thousands
+  of contacts — is a single file; pass several to merge address books. The
+  converter unfolds RFC-6350 line folding, tolerates Apple `itemN.` prefixes (so
+  `item1.EMAIL` parses as EMAIL; pairing the `item1.X-ABLabel` custom label onto
+  the value is a follow-up, not yet done), unescapes `\, \; \n`, strips
+  `mailto:`/`tel:` schemes, keeps multi-valued email/phone/url, and drops PHOTO
+  blobs. Social-profile URLs go into `urls[]` (so they can merge cross-source),
+  and a URL that reduces to a non-identifying segment (`facebook.com/profile.php`)
+  yields no handle rather than a shared key that would glue strangers. Prefers
+  the card `UID` for a stable `sourceId` and de-dups same-UID cards across merged
+  files. vCard 2.1 quoted-printable values aren't decoded — re-export as 3.0/4.0
+  if fields look garbled (the converter warns).
 - **Twitter/X** (Settings → Your account → Download an archive; ~24h wait):
   the WEAKEST source in 2026 — set expectations low before ingesting.
   `data/following.js` / `data/follower.js` are `window.YTD.*` JS wrappers
