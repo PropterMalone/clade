@@ -1,0 +1,18 @@
+{
+  "source": "gmail",
+  "importedAt": "2026-07-16",
+  "records": [
+    {
+      "sourceId": "jwilson-example-com",
+      "name": "Jane Wilson",
+      "emails": ["jwilson@example.com"],
+      "labels": ["frequent-correspondent"]
+    },
+    {
+      "sourceId": "p-raman-acmehealth-com",
+      "name": "Priya Raman",
+      "emails": ["p.raman@acmehealth.example.com"],
+      "employer": "Acme Health"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+# Personal data stays out of git by default. This repo is yours — if you WANT
+# your contact data versioned locally, delete the data lines below. Never push
+# with them removed unless the remote is private and yours.
+# (Patterns use dir/* rather than dir/ so the .gitkeep negations work — git
+# never descends into a fully-ignored directory.)
+imports/*
+!imports/.gitkeep
+contacts/*
+!contacts/.gitkeep
+!contacts/normalized
+contacts/normalized/*
+!contacts/normalized/.gitkeep
+!contacts/enrichments
+contacts/enrichments/*
+!contacts/enrichments/.gitkeep
+profile/about-me.md
+
+# Machinery
+node_modules/
+.env
+*.log
+.stop-enrichment

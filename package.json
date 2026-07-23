@@ -1,0 +1,12 @@
+{
+  "name": "clade",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal contact rolodex built from your platform data exports, enriched by Claude Code.",
+  "scripts": {
+    "build-index": "node scripts/build-index.mjs",
+    "search": "node search.mjs",
+    "test": "node --test ./test/*.test.mjs"
+  }
+}

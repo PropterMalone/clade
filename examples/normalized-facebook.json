@@ -1,0 +1,26 @@
+{
+  "source": "facebook",
+  "importedAt": "2026-07-16",
+  "records": [
+    {
+      "sourceId": "jane-wilson-2011",
+      "name": "Jane Wilson",
+      "connectedOn": "2011-03-18"
+    },
+    {
+      "sourceId": "john-smith-2009",
+      "name": "John Smith",
+      "connectedOn": "2009-09-02"
+    },
+    {
+      "sourceId": "john-smith-1987",
+      "name": "John Smith",
+      "connectedOn": "2013-05-30"
+    },
+    {
+      "sourceId": "mike-delgado-2008",
+      "name": "Mike Delgado",
+      "connectedOn": "2008-10-25"
+    }
+  ]
+}

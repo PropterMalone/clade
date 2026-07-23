@@ -1,0 +1,30 @@
+{
+  "source": "linkedin",
+  "importedAt": "2026-07-16",
+  "records": [
+    {
+      "sourceId": "jane-wilson-deloitte",
+      "name": "Jane Wilson",
+      "emails": ["jwilson@example.com"],
+      "employer": "Deloitte",
+      "title": "Senior Manager, Strategy",
+      "urls": ["https://www.linkedin.com/in/janewilson-example"],
+      "connectedOn": "2019-10-04"
+    },
+    {
+      "sourceId": "john-smith-ibm",
+      "name": "John Smith",
+      "employer": "IBM",
+      "title": "Software Engineer",
+      "urls": ["https://www.linkedin.com/in/johnsmith-ibm-example"],
+      "connectedOn": "2021-02-11"
+    },
+    {
+      "sourceId": "priya-raman-acmehealth",
+      "name": "Priya Raman",
+      "employer": "Acme Health",
+      "title": "VP Product",
+      "connectedOn": "2017-06-20"
+    }
+  ]
+}

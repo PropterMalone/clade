@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your own rolodex — getting started</title>
+<style>
+  :root {
+    --bg: #faf9f6; --fg: #1a1a1a; --muted: #666; --card: #fff;
+    --border: #ddd; --accent: #b05730; --code-bg: #f0efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191917; --fg: #e8e6e0; --muted: #9a978f; --card: #22211e;
+      --border: #3a3934; --accent: #e08b5a; --code-bg: #2a2925;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem 4rem;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.65rem; margin: 0 0 .3rem; }
+  .sub { color: var(--muted); margin: 0 0 1.6rem; }
+  .lede {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem 1.3rem; margin-bottom: 1.8rem;
+  }
+  .step {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.1rem 1.3rem; margin: 0 0 1.1rem;
+  }
+  .step h2 { font-size: 1.08rem; margin: 0 0 .5rem; display: flex; align-items: center; gap: .6rem; }
+  .n {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.7rem; height: 1.7rem; flex: 0 0 auto; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: .9rem; font-weight: 600;
+  }
+  .step p, .step li { margin: .35rem 0; }
+  .step ul, .step ol { margin: .4rem 0; padding-left: 1.35rem; }
+  .when { color: var(--muted); font-size: .85rem; font-weight: 400; margin-left: auto; }
+  code, .path {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .88em; background: var(--code-bg);
+    padding: .1em .35em; border-radius: 4px;
+  }
+  .ui { font-weight: 600; }
+  .say { position: relative; margin: .6rem 0 .3rem; }
+  .say::before {
+    content: "say to Claude"; position: absolute; top: -0.62rem; left: .8rem;
+    background: var(--card); color: var(--muted); padding: 0 .4rem;
+    font-size: .72rem; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .say pre {
+    margin: 0; padding: .85rem 1rem; background: var(--code-bg);
+    border: 1px solid var(--border); border-radius: 8px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font-family: inherit; font-size: .92rem; line-height: 1.5;
+  }
+  .note {
+    border-left: 3px solid var(--accent); padding: .1rem 0 .1rem .9rem;
+    color: var(--muted); margin: 1.4rem 0; font-size: .93rem;
+  }
+  .faq h3 { font-size: .98rem; margin: 1rem 0 .2rem; }
+  .faq p { margin: .2rem 0 .6rem; color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Build your own rolodex</h1>
+  <p class="sub">Everyone you know — LinkedIn, Facebook, Gmail — merged into one index, researched and organized by Claude, searchable from your phone.</p>
+
+  <div class="lede">
+    <p><strong>How it works:</strong> the big platforms are required to hand over your own data when you ask. You request those exports, drop them into a private folder only you control, and Claude does the rest: merges the duplicate people, researches who everyone is professionally, asks you about the ones it can't figure out ("college roommate" is a great answer), and builds a file that lets the regular Claude app on your phone answer questions like <em>"who do I know in renewable energy?"</em></p>
+    <p>Your contacts never go anywhere public. They live in a private repository under your account, period.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">1</span> Request your data exports <span class="when">do this first — they take a day to arrive</span></h2>
+    <p>Each takes ~3 minutes to request. Do all three today; the files show up by email over the next day or so.</p>
+    <ul>
+      <li><span class="ui">LinkedIn</span>: <a href="https://www.linkedin.com/mypreferences/d/download-my-data">linkedin.com → Settings → Data privacy → Get a copy of your data</a> → pick <span class="ui">Connections</span> → Request archive.</li>
+      <li><span class="ui">Facebook</span>: <a href="https://accountscenter.facebook.com/info_and_permissions/dyi/">Accounts Center → Download your information</a> → <span class="ui">Download or transfer information</span> → <span class="ui">Some of your information</span> → pick only <span class="ui">Friends and followers</span> → date range <span class="ui">All time</span>. Prefer format <span class="ui">JSON</span> if offered; the default HTML works too (the kit reads both). If you choose <span class="ui">Transfer to Google Drive</span> instead of a download, the archive arrives as an expanded folder tree — the file you want is <code>friends/your_friends.html</code> (or <code>your_friends.json</code>).</li>
+      <li><span class="ui">Google</span>: <a href="https://takeout.google.com">takeout.google.com</a> → Deselect all → tick only <span class="ui">Contacts</span> → Export.</li>
+    </ul>
+    <p>Got other sources? Phone contacts, a Twitter/X archive — anything with a contact export works too. Download every archive to your computer when the emails arrive.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">2</span> Make your private copy of the rolodex kit</h2>
+    <ol>
+      <li>Open the kit repository (link in the email that brought you here) and click <span class="ui">Use this template → Create a new repository</span>.</li>
+      <li>Name it <code>my-rolodex</code>. Set it to <span class="ui">Private</span> — this matters. Click <span class="ui">Create repository</span>.</li>
+    </ol>
+    <p>That's your copy, under your account. Nobody else can see it — including the person who sent you this.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">3</span> Open it in Claude Code on the web</h2>
+    <ol>
+      <li>Go to <a href="https://claude.ai/code">claude.ai/code</a> (sign in with your normal Claude account).</li>
+      <li>Connect GitHub when prompted and give it access to <code>my-rolodex</code>.</li>
+      <li>Start a session on <code>my-rolodex</code>.</li>
+    </ol>
+    <p>This is the "workshop" — you'll come here for build sessions. Day-to-day lookups happen on your phone (step 7), not here.</p>
+    <p><strong>Already have Claude Code installed on your computer?</strong> You can skip the browser entirely: get the kit as a ZIP (from your repo's github.com page via <span class="ui">Code → Download ZIP</span>, or from whoever sent you this), unzip to a folder, open a terminal there, and type <code>claude</code>. One prerequisite: the kit's scripts run on Node.js 20+ — type <code>node -v</code> in that terminal first, and if it errors, install Node from <a href="https://nodejs.org">nodejs.org</a> (the plain installer; two minutes). Then pick up at step 4. Your data simply stays on your machine — and wherever a later step says github.com, look for the "running locally?" note in that step instead.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">4</span> First session: let Claude set you up</h2>
+    <div class="say"><pre>Get me set up. This is my rolodex repo and I work in the browser, so set up cloud mode. Then interview me for my life history.</pre></div>
+    <p>Two things happen: Claude configures the repo so your data saves between sessions (it will confirm the repo is private first), then interviews you — where you grew up, schools, jobs, cities, with rough years. Answer casually; ballpark years are fine. This is what later lets it figure out that a Facebook friend from 2008 is probably from your college crowd.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">5</span> Add your exports and let Claude ingest them <span class="when">once the archives arrive</span></h2>
+    <ol>
+      <li>On your repo's page on <span class="ui">github.com</span>, open the <code>imports</code> folder.</li>
+      <li>Click <span class="ui">Add file → Upload files</span>, drag in the export files (zips are fine as-is), and click <span class="ui">Commit changes</span>.</li>
+      <li>Back in your claude.ai/code session:</li>
+    </ol>
+    <div class="say"><pre>I uploaded my exports to imports/ — ingest them and build the index.</pre></div>
+    <p><em>Running locally (no GitHub)?</em> Just move the downloaded export files into the <code>imports</code> folder inside your kit folder (Finder / File Explorer), then say the same thing to Claude.</p>
+    <p>Claude parses whatever the platforms gave you, merges people who appear in multiple places, and asks you about the handful it isn't sure of ("Is the Jennifer Wilson in your Gmail the same one from LinkedIn at Deloitte?").</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">6</span> Enrich and triage, at your own pace</h2>
+    <div class="say"><pre>Enrich a batch of 25.</pre></div>
+    <p>Claude researches your contacts on the web — profession, employer, expertise — starting with the ones it has the most to go on. Each batch takes a few minutes and uses your own Claude plan's capacity, so run a batch whenever you feel like it; it always picks up where it left off. A few thousand contacts is a week or two of casual sessions.</p>
+    <div class="say"><pre>Let's triage the unknowns.</pre></div>
+    <div class="say"><pre>Most of these are probably from my hometown — prescreen them against Millbrook, Alabama.</pre></div>
+    <p>For people the web can't identify — old Facebook friends especially — Claude asks <em>you</em>, grouped by era ("these five were all added around 2009 — what was going on then?"). Ten-second answers like "cousin" or "kickball league" get saved and are exactly what makes the rolodex yours. Loose answers work — "all in-laws except the last two" tags a whole batch at once. Two things to expect: your first year on Facebook is a <em>join wave</em> that mixes every earlier era of your life, so it triages last, not first; and Claude's era guesses will sometimes be wrong — correcting it ("no, we married in 2012") takes seconds and permanently improves every guess after. When most of a batch belongs to one scene, ask for a <em>prescreen</em>: Claude web-checks every unknown against that one cue (school, town, team) and hands you a shortlist with evidence to confirm — schools with findable class rosters work astonishingly well.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">7</span> Put it on your phone</h2>
+    <div class="say"><pre>Export for my Project.</pre></div>
+    <ol>
+      <li>Claude creates <code>contacts/rolodex-knowledge.md</code>. Download it: on your repo's github.com page, open <code>contacts</code> → click the file → the <span class="ui">download</span> button (top right of the file view). <em>Running locally?</em> Skip the download — the file is already sitting in the <code>contacts</code> folder on your machine; upload it from there.</li>
+      <li>On <a href="https://claude.ai/projects">claude.ai/projects</a>: <span class="ui">+ New project</span>, name it <span class="ui">My Rolodex</span>.</li>
+      <li>In the project's <span class="ui">knowledge</span> panel, upload the file. Paste the short instructions Claude gives you into <span class="ui">Project instructions</span>.</li>
+    </ol>
+    <p>Done. The Claude app on your phone → <span class="ui">Projects → My Rolodex</span> → ask it anything: <em>"who do I know at a hospital system?"</em>, <em>"how do I reach that patent lawyer I know?"</em> After future enrichment sessions, replace the one file and the phone stays current.</p>
+  </div>
+
+  <div class="step">
+    <h2><span class="n">8</span> When you meet someone new</h2>
+    <p>This is the part you'll use most. Just met someone worth remembering? On github.com, open the <code>imports</code> folder → <span class="ui">Add file → Create new file</span> → name it <code>quickadd.md</code> (first time only — there's a <code>quickadd.example.md</code> beside it to crib from), and jot a line — their name and whatever you know. <em>Running locally?</em> Same file, no GitHub: open <code>imports/quickadd.md</code> in any text editor (TextEdit, Notepad) — or just tell Claude about the person next time you're in a session:</p>
+    <div class="say"><pre>Dave Chen, solar developer in Austin, met at the SEIA conference, Priya introduced us, following up about storage.</pre></div>
+    <p>No format, no app to install — capturing is just editing a text file. Next time you're in a Claude Code session, say <strong>"process my quick-adds"</strong> and Claude turns each line into a contact, checks whether you already know them, researches them, and folds them in. Then re-export for your phone (step 7) and Dave's searchable forever.</p>
+  </div>
+
+  <p class="note"><strong>The rhythm from here:</strong> phone for questions and for jotting people you meet, occasional browser session to process quick-adds / enrich / add new exports, replace the Project file when Claude suggests it. That's the whole system.</p>
+
+  <div class="step faq">
+    <h2>Questions you might have</h2>
+    <h3>Is my stuff private?</h3>
+    <p>Yes. Everything lives in your private repository and your Claude account. Enrichment sends web searches about one person at a time (like googling them yourself); your contact list as a whole never leaves your control.</p>
+    <h3>Does this cost anything?</h3>
+    <p>It runs on the Claude plan you already have — a paid plan (Pro or above), since Claude Code powers the build sessions. Enrichment uses your plan's spare capacity; if you ever hit your usage limit mid-batch, it stops politely and resumes next time.</p>
+    <h3>What about people who are basically un-Googleable?</h3>
+    <p>That's what triage is for — you're the world's only expert on how you know your own friends. "College roommate's wife" is a complete, successful answer.</p>
+    <h3>Something looks weird / I broke it</h3>
+    <p>You almost certainly didn't — every step is saved, nothing is ever unrecoverable. Tell Claude what happened, or ask the person who sent you this.</p>
+  </div>
+</main>
+</body>
+</html>
