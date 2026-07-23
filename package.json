@@ -8,5 +8,9 @@
     "build-index": "node scripts/build-index.mjs",
     "search": "node search.mjs",
     "test": "node --test ./test/*.test.mjs"
+  },
+  "exports": {
+    "./lib/*": "./scripts/lib/*",
+    "./package.json": "./package.json"
   }
 }

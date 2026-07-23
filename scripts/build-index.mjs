@@ -19,6 +19,13 @@ import { validateEnrichment } from './lib/enrich-core.mjs'
 import { unwrapDecisions, unwrapEntries } from './lib/envelope.mjs'
 import { buildIndex } from './lib/resolve.mjs'
 
+// LOAD-BEARING: these paths are cwd-relative on purpose. A private data instance
+// (e.g. Krolodex) runs this engine against ITS OWN data via `cd <instance> &&
+// node <clade>/scripts/build-index.mjs` — the paths resolve against the instance's
+// cwd, so the owner's real contacts never enter this public repo's tree. Do NOT
+// "fix" these to be relative to the script (import.meta.url): that would redirect
+// every instance build into THIS repo's contacts/ dir — a private-data-into-public
+// leak. See docs / CLAUDE.md conventions.
 const NORM_DIR = 'contacts/normalized'
 const ENRICH_DIR = 'contacts/enrichments'
 const ATTESTED_PATH = 'contacts/attested.json'

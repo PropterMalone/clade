@@ -364,6 +364,27 @@ would defeat it.
 ## Conventions
 
 - Node ESM scripts, no dependencies, no build step. Match the existing style.
+- **Engine-consumability contract (load-bearing for private data instances).**
+  A private instance (e.g. the owner's real data repo) consumes this public
+  engine two ways, both of which depend on invariants that must not be "cleaned
+  up" away:
+  1. **Direct invocation**: `cd <instance> && node <clade>/scripts/build-index.mjs`.
+     This works only because the wrapper scripts use **cwd-relative** data paths
+     (`contacts/normalized`, `contacts/unified-index.json`, ...). NEVER anchor
+     those to the script's own location (`import.meta.url`): that redirects every
+     instance build into THIS public repo's `contacts/` — a private-data leak.
+  2. **`file:` symlink dep** (`"clade": "file:../clade"` + wildcard `exports`):
+     the instance imports engine functions as `clade/lib/*`. Node resolves a
+     symlinked package's imports from its realpath, so **Clade must stay
+     zero-runtime-deps** — a runtime dependency here would be looked up in
+     Clade's (nonexistent) `node_modules`, breaking the consumer. Keep
+     `dependencies` empty; dev-only tooling is fine.
+- **Pseudonymity gate.** This repo is published pseudonymously; the owner's real
+  identity must never land in tracked content. `scripts/check-no-owner-identity.sh`
+  scans for it and fails loudly. Install it as a pre-push hook on any clone
+  (`printf '#!/usr/bin/env bash\nexec bash "$(git rev-parse --show-toplevel)/scripts/check-no-owner-identity.sh"\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push`).
+  When forward-porting any script from a private instance, treat it as a rewrite
+  that strips personal identifiers and owner quotes — never a copy-paste.
 - Overlay files (attested, decisions, enrichments) are append-mostly and keyed
   by `<source>:<sourceId>` — never rekey them.
 - After any data change, rebuild the index before answering questions from it.
