@@ -21,6 +21,14 @@
 //                          to a fast model — identification is retrieval work)
 //         --dry-run        print the selection, no agent calls
 //         --max-retries N  backoff retries when rate-limited (default 4)
+//         --guard-cmd CMD  (or env CLADE_ENRICH_GUARD) a command run between
+//                          batches; a non-zero exit stops the run cleanly, like
+//                          the stop-file. This is the seam an instance uses to
+//                          plug in a usage-meter / budget / time-window guard —
+//                          the engine stays ignorant of the instance's specific
+//                          quota, proxy endpoint, or soak policy (all of which
+//                          live in CMD). The guard's stderr first line becomes
+//                          the stop reason.
 //
 // Cost shape: contacts that already carry a LinkedIn URL are cheap 1-2-fetch
 // confirms, so they share sessions in groups (enrich-core planWork) to amortize
@@ -70,8 +78,25 @@ const CONCURRENCY = Number(flag('--concurrency', '3'))
 const MODEL = flag('--model', null) // explicit user override only (no hardcoded default); when set it DOES outrank an ambient CLADE_AGENT_MODEL for this run
 const DRY = argv.includes('--dry-run')
 const MAX_RETRIES = Number(flag('--max-retries', '4'))
+const GUARD_CMD = flag('--guard-cmd', process.env.CLADE_ENRICH_GUARD || null)
 const BACKOFF_BASE_MS = 20_000
 const BACKOFF_CAP_MS = 180_000
+
+// Pluggable between-batch guard: an instance supplies a command (a usage-meter,
+// budget, or time-window check) that can veto continuing. A non-zero exit stops
+// the run cleanly, exactly like the stop-file — keeping the engine ignorant of
+// the instance's specific quota/proxy/soak policy, which lives in the command.
+// Returns a stop-reason string when the guard vetoes, else null.
+function guardStop() {
+  if (!GUARD_CMD) return null
+  try {
+    execSync(GUARD_CMD, { stdio: 'pipe' })
+    return null
+  } catch (e) {
+    const msg = String(e.stderr || e.stdout || e.message || '').split('\n')[0].trim()
+    return `guard vetoed continuation${msg ? `: ${msg}` : ''} (--guard-cmd)`
+  }
+}
 
 // --- single-run lock ----------------------------------------------------------
 
@@ -225,6 +250,11 @@ async function main() {
   for (let i = 0; i < units.length; i += CONCURRENCY) {
     if (existsSync(STOP_FILE)) {
       stoppedReason = 'stop-file present (.stop-enrichment)'
+      break
+    }
+    const guardReason = guardStop()
+    if (guardReason) {
+      stoppedReason = guardReason
       break
     }
     const wave = units.slice(i, i + CONCURRENCY)
