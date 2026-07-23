@@ -274,3 +274,26 @@ test('contact block always carries the linkedinUrl even when 5+ other urls prece
     assert.match(fenced, /- linkedin: /)
   }
 })
+
+// privacy rule 2 batching carve-out: shared confirm sessions carry public-profile
+// fields only — owner-private overlay data never travels with other contacts.
+test('confirm-group blocks exclude attested notes, labels, emails, and connection dates', () => {
+  const c = {
+    name: 'Jane Wilson',
+    employer: 'Acme',
+    linkedinUrl: 'https://linkedin.com/in/jw',
+    urls: ['https://linkedin.com/in/jw'],
+    emails: ['jane@example.com'],
+    connectedOn: { facebook: '2010-01-01' },
+    attested: { relationship: 'college roommate', context: 'lived together sophomore year' },
+    labels: ['Poker Night'],
+  }
+  const confirm = buildConfirmBatchPrompt([c])
+  for (const priv of ['college roommate', 'lived together', 'jane@example.com', 'Poker Night', '2010-01-01'])
+    assert.ok(!confirm.includes(priv), `confirm prompt must not contain private field: ${priv}`)
+  assert.ok(confirm.includes('https://linkedin.com/in/jw'))
+  assert.ok(confirm.includes('Acme'))
+  // solo prompts still carry the full block — private context is allowed there
+  const solo = buildPrompt(c)
+  assert.ok(solo.includes('college roommate'))
+})

@@ -14,9 +14,13 @@ merging, research, and searching.
    push them. Cloud mode (see below) is the one documented exception:
    there, commits to the owner's PRIVATE repo ARE the owner's storage, and
    the Cloud-mode checklist governs that flip. Never any third place.
-2. The only data that leaves custody: web-search queries during enrichment
-   (one person's name/employer at a time), and whatever query surface the
-   owner explicitly sets up (e.g. a claude.ai Project knowledge file).
+2. The only data that leaves custody: enrichment traffic to the owner's own
+   agent — web-search queries are one person per query, and the
+   URL-confirmation tier may batch up to four contacts' PUBLIC-PROFILE fields
+   (name, employer, title, bio, links, handles; never attested notes, labels,
+   emails, or the owner's life history) into one session — and whatever query
+   surface the owner explicitly sets up (e.g. a claude.ai Project knowledge
+   file). Owner-private context goes only into single-contact sessions.
 3. Pseudonymous handles don't get unmasked — if someone hasn't publicly tied a
    real name to a handle, record only their public persona and expertise.
 4. This is the owner's own address book, used to help them find people they
@@ -237,10 +241,14 @@ provider's usage limit mid-run is expected and stops cleanly.
 Token economy (why any paid plan, Pro included, is enough): claude-mode
 research runs on a fast model by default (`--model` to override); contacts
 that already carry a LinkedIn URL are cheap 1-2-fetch confirms and share a
-session in groups of 4 (`planWork` in `enrich-core.mjs`), while thin contacts
-run solo with the life-history prior injected; the search budget is tiered
-(1-2 fetches for URL-confirms, up to 5 searches for open research, stop at
-corroboration).
+session in groups of 4 (`planWork` in `enrich-core.mjs`) carrying
+public-profile fields only — attested notes, labels, emails, and the
+life-history prior never enter a shared session (privacy rule 2's batching
+carve-out). Thin contacts run solo with the life-history prior injected; the
+search budget is tiered (1-2 fetches for URL-confirms, up to 5 searches for
+open research, stop at corroboration). Confirm entries must echo their
+contact's LinkedIn URL — mismatches and duplicate `n`s are dropped to retry,
+never banked.
 
 Before the first-ever run, confirm `profile/about-me.md` exists (step 0) —
 enrichment quality for name-only contacts depends on it.

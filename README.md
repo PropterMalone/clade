@@ -14,8 +14,11 @@ live only on your machine (the data directories are gitignored and never
 committed). Exactly three things can ever leave your custody, all under your
 control:
 
-1. Web-search queries your own agent makes during enrichment (one person's
-   name and employer at a time, through the agent account you already have);
+1. Enrichment research by your own agent, through the agent account you
+   already have — web searches are one person per query, and the
+   URL-confirmation step may batch a few contacts' public-profile details
+   (names, employers, links — never your private notes about them) into a
+   single session;
 2. A knowledge file you may choose to upload to your own claude.ai Project for
    phone lookups;
 3. In cloud mode (Claude Code on the web), commits to your own **private**
