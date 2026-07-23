@@ -77,7 +77,12 @@ export function contactBlock(c) {
   if (c.employer) lines.push(`- employer (from source data): ${clean(c.employer, 160)}`)
   if (c.profession) lines.push(`- title: ${clean(c.profession, 160)}`)
   if (c.bio) lines.push(`- bio: ${JSON.stringify(clean(c.bio, 400))}`)
-  const urls = safeUrls(c.urls).slice(0, 5)
+  // The linkedinUrl gets its own line, always: the confirm tier's prompt and
+  // identity cross-check both assume it is present in the block, and the
+  // generic urls slice below can otherwise drop it (resolve.mjs appends an
+  // enrichment-derived linkedinUrl last, after up to N source urls).
+  if (isPublicHttpUrl(c.linkedinUrl)) lines.push(`- linkedin: ${clean(c.linkedinUrl, 200)}`)
+  const urls = safeUrls(c.urls).filter((u) => u !== c.linkedinUrl).slice(0, 5)
   if (urls.length) lines.push(`- urls: ${urls.map((u) => clean(u, 200)).join(', ')}`)
   for (const [p, h] of Object.entries(c.handles || {}))
     if (typeof h === 'string' && h.trim()) lines.push(`- ${clean(p, 40)} handle: ${clean(h, 80)}`)

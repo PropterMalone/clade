@@ -256,3 +256,21 @@ test('validateEnrichmentBatch drops ALL claimants of a duplicated n', () => {
   )
   assert.deepEqual(out, [null, null])
 })
+
+// angel-review 2026-07-23 (verified live): the urls slice(0,5) could drop the
+// appended-last linkedinUrl while the prompt claimed it was present.
+test('contact block always carries the linkedinUrl even when 5+ other urls precede it', () => {
+  const c = {
+    name: 'Jane Wilson',
+    linkedinUrl: 'https://linkedin.com/in/jw',
+    urls: [
+      'https://a.example.com/', 'https://b.example.com/', 'https://c.example.com/',
+      'https://d.example.com/', 'https://e.example.com/', 'https://linkedin.com/in/jw',
+    ],
+  }
+  for (const p of [buildPrompt(c), buildConfirmBatchPrompt([c])]) {
+    const fenced = p.split('BEGIN CONTACT DATA')[1].split('END CONTACT DATA')[0]
+    assert.ok(fenced.includes('https://linkedin.com/in/jw'), 'linkedinUrl must be in the fenced block')
+    assert.match(fenced, /- linkedin: /)
+  }
+})
