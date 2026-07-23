@@ -297,3 +297,11 @@ test('confirm-group blocks exclude attested notes, labels, emails, and connectio
   const solo = buildPrompt(c)
   assert.ok(solo.includes('college roommate'))
 })
+
+test('validateEnrichmentBatch unwraps a {results: [...]} object response', () => {
+  const out = validateEnrichmentBatch(
+    { results: [{ n: 1, confidence: 'high', profession: 'nurse', linkedinUrl: 'https://linkedin.com/in/person-1' }] },
+    confirmContacts(1),
+  )
+  assert.equal(out[0]?.profession, 'nurse')
+})
