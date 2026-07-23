@@ -67,7 +67,7 @@ const flag = (name, def) => {
 }
 const LIMIT = Number(flag('--limit', '25'))
 const CONCURRENCY = Number(flag('--concurrency', '3'))
-const MODEL = flag('--model', null) // explicit override only — never clobbers CLADE_AGENT_MODEL
+const MODEL = flag('--model', null) // explicit user override only (no hardcoded default); when set it DOES outrank an ambient CLADE_AGENT_MODEL for this run
 const DRY = argv.includes('--dry-run')
 const MAX_RETRIES = Number(flag('--max-retries', '4'))
 const BACKOFF_BASE_MS = 20_000
