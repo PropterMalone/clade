@@ -46,11 +46,12 @@
 // are untrusted, so they're fenced as data, URLs are filtered before the model
 // may fetch them, and responses are schema-validated before being banked.
 
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   clean,
+  filterByUnitKind,
   foldUnit,
   isEnrichmentRecord,
   parseJsonBlock,
@@ -80,6 +81,11 @@ const LIMIT = Number(flag('--limit', '25'))
 const CONCURRENCY = Number(flag('--concurrency', '3'))
 const MODEL = flag('--model', null) // explicit user override only (no hardcoded default); when set it DOES outrank an ambient CLADE_AGENT_MODEL for this run
 const DRY = argv.includes('--dry-run')
+const UNITS = flag('--units', 'all') // solo | confirm | all — target one enrichment tier
+if (!['solo', 'confirm', 'all'].includes(UNITS)) {
+  console.error(`[enrich] --units must be solo|confirm|all (got ${JSON.stringify(UNITS)})`)
+  process.exit(1)
+}
 const MAX_RETRIES = Number(flag('--max-retries', '4'))
 const GUARD_CMD = flag('--guard-cmd', process.env.CLADE_ENRICH_GUARD || null)
 const BACKOFF_BASE_MS = 20_000
@@ -235,6 +241,11 @@ async function runBatch(units) {
 
 async function main() {
   let candidates = selectCandidates()
+  if (UNITS !== 'all') {
+    const before = candidates.length
+    candidates = filterByUnitKind(candidates, UNITS)
+    console.log(`[enrich] --units ${UNITS}: ${candidates.length}/${before} candidates`)
+  }
   console.log(`[enrich] ${candidates.length} candidates with seed signal, not yet attempted`)
   if (DRY) {
     for (const c of candidates.slice(0, Math.max(LIMIT, 20)))
@@ -271,9 +282,14 @@ async function main() {
       mkdirSync(ENRICH_DIR, { recursive: true })
       writeFileSync(`${ENRICH_DIR}/batch-${ts}-${process.pid}.json`, JSON.stringify(wrapEntries(r.results), null, 2))
       try {
-        execSync('node scripts/build-index.mjs', { stdio: 'pipe' })
+        // Resolve the builder by its own location, NOT cwd — under CLADE_DATA_DIR
+        // the cwd is the engine repo but a direct-invocation instance's cwd is the
+        // data dir (no scripts/ there). This is a SCRIPT path (import.meta.url is
+        // permitted for those; only DATA paths must stay cwd-relative — paths.mjs).
+        // The child inherits CLADE_DATA_DIR via env, so it rebuilds the right dir.
+        execFileSync('node', [fileURLToPath(new URL('./build-index.mjs', import.meta.url))], { stdio: 'pipe' })
       } catch (e) {
-        console.warn(`[enrich] index rebuild failed: ${String(e.message).split('\n')[0]} — results are banked; run node scripts/build-index.mjs manually`)
+        console.warn(`[enrich] index rebuild failed: ${String(e.message).split('\n')[0]} — results are banked; rebuild with node <clade>/scripts/build-index.mjs`)
       }
     }
     console.log(`[enrich] ${done}/${candidates.length} attempted | ${resolved} identified (high/medium)`)
