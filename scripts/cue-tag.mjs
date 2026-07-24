@@ -22,18 +22,25 @@
 // Claude by default, any web-capable agent via CLADE_AGENT_CMD — docs/byo-model.md).
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runAgent } from './lib/agent.mjs'
 import { buildCueBatchPrompt, clean, isKeyShapedName, parseJsonBlock, validateCueBatchVerdicts } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
+import { dataPath } from './paths.mjs'
 
-const INDEX_PATH = 'contacts/unified-index.json'
-const ATTESTED_PATH = 'contacts/attested.json'
+const INDEX_PATH = dataPath('contacts/unified-index.json')
+const ATTESTED_PATH = dataPath('contacts/attested.json')
 // Each cue banks to its own file (--proposals) so two cue runs can go in
-// parallel; the default keeps single-cue usage simple.
+// parallel; the default keeps single-cue usage simple. This file carries
+// per-person PII, so a relative --proposals value must land in the DATA dir
+// (not cwd, which may be the public engine repo) — only an explicit absolute
+// path is honored as-is.
 const PROPOSALS_PATH = (() => {
   const i = process.argv.indexOf('--proposals')
-  return i >= 0 ? process.argv[i + 1] : 'contacts/cue-proposals.json'
+  if (i < 0) return dataPath('contacts/cue-proposals.json')
+  const v = process.argv[i + 1]
+  return isAbsolute(v) ? v : dataPath(v)
 })()
 
 const argv = process.argv.slice(2)

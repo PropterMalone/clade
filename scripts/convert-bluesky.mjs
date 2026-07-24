@@ -16,8 +16,11 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { stampSource } from './lib/envelope.mjs'
 import { blueskyRecords } from './lib/ingest.mjs'
+import { dataPath } from './paths.mjs'
 
 const APPVIEW = 'https://public.api.bsky.app/xrpc'
+const NORM_DIR = dataPath('contacts/normalized')
+const OUT_PATH = dataPath('contacts/normalized/bluesky.json')
 
 async function xrpc(method, params) {
   const url = `${APPVIEW}/${method}?${new URLSearchParams(params)}`
@@ -74,14 +77,14 @@ async function main() {
     console.error(`0 accounts for ${handle} — is the handle spelled right and the account public?`)
     process.exit(1)
   }
-  mkdirSync('contacts/normalized', { recursive: true })
+  mkdirSync(NORM_DIR, { recursive: true })
   writeFileSync(
-    'contacts/normalized/bluesky.json',
+    OUT_PATH,
     JSON.stringify(stampSource({ source: 'bluesky', importedAt: new Date().toISOString().slice(0, 10), records }), null, 2),
   )
   const by = records.reduce((m, r) => ((m[r.edge] = (m[r.edge] || 0) + 1), m), {})
   console.log(
-    `Wrote contacts/normalized/bluesky.json — ${records.length} accounts ` +
+    `Wrote ${OUT_PATH} — ${records.length} accounts ` +
       `(${follows.length} follows, ${followers.length} followers; ` +
       `${by.mutual || 0} mutual, ${by.following || 0} following-only, ${by.follower || 0} follower-only)`,
   )

@@ -14,11 +14,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { stampSource } from './lib/envelope.mjs'
 import { linkedinRecords } from './lib/ingest.mjs'
+import { dataPath } from './paths.mjs'
 
-const OUT_PATH = 'contacts/normalized/linkedin.json'
+const OUT_PATH = dataPath('contacts/normalized/linkedin.json')
 
 function main() {
-  const csvPath = process.argv[2] || 'imports/Connections.csv'
+  const csvPath = process.argv[2] || dataPath('imports/Connections.csv')
   if (!existsSync(csvPath)) {
     console.error(`No ${csvPath} — drop your LinkedIn export there or pass a path.`)
     process.exit(1)
@@ -29,7 +30,7 @@ function main() {
     console.error('0 records parsed — not writing. Check the file is a LinkedIn Connections.csv.')
     process.exit(1)
   }
-  mkdirSync('contacts/normalized', { recursive: true })
+  mkdirSync(dataPath('contacts/normalized'), { recursive: true })
   writeFileSync(
     OUT_PATH,
     JSON.stringify(stampSource({ source: 'linkedin', importedAt: new Date().toISOString().slice(0, 10), records }), null, 2),

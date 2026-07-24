@@ -61,12 +61,15 @@ import {
 } from './lib/enrich-core.mjs'
 import { runAgent } from './lib/agent.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
+import { dataPath } from './paths.mjs'
 
-const INDEX_PATH = 'contacts/unified-index.json'
-const ENRICH_DIR = 'contacts/enrichments'
-const PRIOR_PATH = 'profile/about-me.md'
+const INDEX_PATH = dataPath('contacts/unified-index.json')
+const ENRICH_DIR = dataPath('contacts/enrichments')
+const PRIOR_PATH = dataPath('profile/about-me.md')
+// Control-plane, NOT data: stays cwd-relative so 'touch .stop-enrichment' works
+// from wherever the operator is running, per CLAUDE.md.
 const STOP_FILE = '.stop-enrichment'
-const LOCK_PATH = '.enrich-lock'
+const LOCK_PATH = dataPath('.enrich-lock')
 
 const argv = process.argv.slice(2)
 const flag = (name, def) => {

@@ -18,20 +18,15 @@ import { pathToFileURL } from 'node:url'
 import { validateEnrichment } from './lib/enrich-core.mjs'
 import { unwrapDecisions, unwrapEntries } from './lib/envelope.mjs'
 import { buildIndex } from './lib/resolve.mjs'
+import { dataPath } from './paths.mjs'
 
-// LOAD-BEARING: these paths are cwd-relative on purpose. A private data instance
-// (e.g. Krolodex) runs this engine against ITS OWN data via `cd <instance> &&
-// node <clade>/scripts/build-index.mjs` — the paths resolve against the instance's
-// cwd, so the owner's real contacts never enter this public repo's tree. Do NOT
-// "fix" these to be relative to the script (import.meta.url): that would redirect
-// every instance build into THIS repo's contacts/ dir — a private-data-into-public
-// leak. See docs / CLAUDE.md conventions.
-const NORM_DIR = 'contacts/normalized'
-const ENRICH_DIR = 'contacts/enrichments'
-const ATTESTED_PATH = 'contacts/attested.json'
-const DECISIONS_PATH = 'contacts/merge-decisions.json'
-const OUT_PATH = 'contacts/unified-index.json'
-const CANDIDATES_PATH = 'contacts/merge-candidates.json'
+// Data paths resolve through the CLADE_DATA_DIR seam — see scripts/paths.mjs.
+const NORM_DIR = dataPath('contacts/normalized')
+const ENRICH_DIR = dataPath('contacts/enrichments')
+const ATTESTED_PATH = dataPath('contacts/attested.json')
+const DECISIONS_PATH = dataPath('contacts/merge-decisions.json')
+const OUT_PATH = dataPath('contacts/unified-index.json')
+const CANDIDATES_PATH = dataPath('contacts/merge-candidates.json')
 
 // Fail loud with the offending filename — a malformed source or decisions file
 // must never produce a silently smaller index.
@@ -115,7 +110,7 @@ function main() {
   if (out.candidates.length > 0) {
     const exact = out.candidates.filter((c) => c.reason === 'exact-name').length
     console.log(`\n${out.candidates.length} ambiguous merge candidate(s) → ${CANDIDATES_PATH}${exact ? ` (${exact} exact-name — usually bulk-rulable)` : ''}`)
-    console.log('Review them (see CLAUDE.md "Merge review") and record rulings in contacts/merge-decisions.json.')
+    console.log(`Review them (see CLAUDE.md "Merge review") and record rulings in ${DECISIONS_PATH}.`)
   }
   console.log(`\nWrote ${OUT_PATH}`)
 }

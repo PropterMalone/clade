@@ -13,9 +13,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { clean, isKeyShapedName } from './lib/enrich-core.mjs'
+import { dataPath } from './paths.mjs'
 
-const INDEX_PATH = 'contacts/unified-index.json'
-const OUT_PATH = 'contacts/rolodex-knowledge.md'
+const INDEX_PATH = dataPath('contacts/unified-index.json')
+const OUT_PATH = dataPath('contacts/rolodex-knowledge.md')
 
 // Skip non-person artifacts, by reason:
 //   key-shaped — "linkedin:jane-wilson": a record key that leaked in as a name

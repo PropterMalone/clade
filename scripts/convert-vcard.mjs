@@ -16,12 +16,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { stampSource } from './lib/envelope.mjs'
 import { vcardRecords } from './lib/ingest.mjs'
+import { dataPath } from './paths.mjs'
 
-const OUT_PATH = 'contacts/normalized/vcard.json'
+const OUT_PATH = dataPath('contacts/normalized/vcard.json')
 
 function main() {
   const args = process.argv.slice(2)
-  const inputs = args.length ? args : ['imports/contacts.vcf']
+  const inputs = args.length ? args : [dataPath('imports/contacts.vcf')]
   const present = inputs.filter((p) => existsSync(p))
   if (present.length === 0) {
     console.error(`No ${inputs.join(', ')} — drop your .vcf export there or pass a path.`)
@@ -35,7 +36,7 @@ function main() {
     console.error('0 records parsed — not writing.')
     process.exit(1)
   }
-  mkdirSync('contacts/normalized', { recursive: true })
+  mkdirSync(dataPath('contacts/normalized'), { recursive: true })
   writeFileSync(
     OUT_PATH,
     JSON.stringify(stampSource({ source: 'vcard', importedAt: new Date().toISOString().slice(0, 10), records }), null, 2),

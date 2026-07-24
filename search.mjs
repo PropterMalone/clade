@@ -15,8 +15,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { clean } from './scripts/lib/enrich-core.mjs'
+import { dataPath } from './scripts/paths.mjs'
 
-const indexPath = 'contacts/unified-index.json'
+const indexPath = dataPath('contacts/unified-index.json')
 
 export function matchesQuery(c, q) {
   if (!q) return true
