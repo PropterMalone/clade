@@ -13,13 +13,18 @@ contacts/normalized/*
 !contacts/enrichments
 contacts/enrichments/*
 !contacts/enrichments/.gitkeep
-profile/about-me.md
+# profile/ holds the owner's life history. Ignore the whole dir except the
+# template — a second profile file (e.g. an era cheat-sheet split out of
+# about-me) must not land trackable in the public tree.
+profile/*
+!profile/about-me.example.md
 
 # Machinery
 node_modules/
 .env
 *.log
 .stop-enrichment
+.enrich-lock
 
 # local Claude Code settings + their backups (never publish)
 .claude/settings.local.json*
