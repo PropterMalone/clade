@@ -11,6 +11,7 @@ import {
   isEnrichmentRecord,
   isKeyShapedName,
   parseJsonBlock,
+  filterByUnitKind,
   planWork,
   safeUrls,
   seedScore,
@@ -187,6 +188,20 @@ test('planWork groups linkedinUrl contacts into confirm units, keeps thin solo',
   // solo and keep their place in the richest-first order
   assert.deepEqual(kinds, ['solo:1', `confirm:${CONFIRM_GROUP_SIZE}`, 'solo:1', 'confirm:1'])
   assert.deepEqual(units[1].contacts.map((c) => c.name), ['R1', 'R2', 'R3', 'R4'])
+})
+
+test('filterByUnitKind splits candidates by the confirm/solo discriminator (linkedinUrl)', () => {
+  const rich = { name: 'R', linkedinUrl: 'https://linkedin.com/in/r', keys: ['linkedin:r'] }
+  const thin = { name: 'T', keys: ['facebook:t'] }
+  const cands = [rich, thin, { name: 'R2', linkedinUrl: 'https://linkedin.com/in/r2' }]
+  assert.deepEqual(filterByUnitKind(cands, 'all'), cands)
+  assert.deepEqual(filterByUnitKind(cands, 'confirm').map((c) => c.name), ['R', 'R2'])
+  assert.deepEqual(filterByUnitKind(cands, 'solo').map((c) => c.name), ['T'])
+  // The split must match planWork's own routing: confirm candidates never yield a
+  // solo unit (so they never receive the private prior), and vice versa.
+  for (const u of planWork(filterByUnitKind(cands, 'confirm'))) assert.equal(u.kind, 'confirm')
+  for (const u of planWork(filterByUnitKind(cands, 'solo'))) assert.equal(u.kind, 'solo')
+  assert.throws(() => filterByUnitKind(cands, 'bogus'), /unknown --units kind/)
 })
 
 test('buildConfirmBatchPrompt numbers contacts inside the fence and forbids cross-contamination', () => {

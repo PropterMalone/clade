@@ -203,6 +203,19 @@ export function planWork(candidates) {
   return units
 }
 
+// Filter candidates to those that will form the requested unit kind, so a run
+// can target one enrichment tier (used for the hybrid backend split: Claude for
+// solos carrying the life-history prior, Gemini for public confirm batches).
+// The discriminator is exactly planWork's: a linkedinUrl-bearing candidate always
+// becomes a `confirm` unit (public-profile-only, no prior); everything else is a
+// `solo` (thin contact, prior injected). `all` is the no-op default.
+export function filterByUnitKind(candidates, kind = 'all') {
+  if (kind === 'all') return candidates
+  if (kind === 'confirm') return candidates.filter((c) => Boolean(c.linkedinUrl))
+  if (kind === 'solo') return candidates.filter((c) => !c.linkedinUrl)
+  throw new Error(`unknown --units kind: ${kind} (expected solo|confirm|all)`)
+}
+
 export function buildConfirmBatchPrompt(contacts) {
   const blocks = contacts.map((c, i) => `--- contact ${i + 1} ---\n${contactBlock(c, { confirm: true })}`)
   return `Confirm the real-world professional identities of ${contacts.length} UNRELATED contacts for a personal network-index ("rolodex") keyed by expertise. Purpose: helping the index's owner find relevant people they already know — NOT deanonymization or surveillance.
