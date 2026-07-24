@@ -54,8 +54,15 @@ normalized or overlay file.
 - `node scripts/cue-tag.mjs --cue "..." --tag "..."` — prescreen thin contacts
   against one life-context cue (see pipeline step 4)
 - `touch .stop-enrichment` — stop an enrichment run between batches
+- `node scripts/attest.mjs --key <source:id> --relationship "..."` /
+  `record-merge.mjs --keys "<a>,<b>" --verdict same` /
+  `data-write.mjs <path>` (content on stdin) — seam-aware overlay writes; use
+  these instead of hand-editing `attested.json` / `merge-decisions.json` /
+  `about-me.md` / `manual.json` (see Conventions + ADR-06)
 - `node scripts/export-knowledge.mjs` — export the index as markdown for a
   claude.ai Project (see "Two surfaces" below)
+- `CLADE_DATA_DIR=<abs-dir> node scripts/…` — drive any command against a data
+  dir outside this repo (must be an absolute path outside the repo; ADR-06)
 
 ## Two surfaces: build here, query anywhere
 
@@ -76,7 +83,9 @@ between sessions. In that setup, on first run: confirm the repo is PRIVATE
 and owned by them, then remove the data-ignore lines from `.gitignore` (the
 block is labeled) so `contacts/`, `imports/`, and `profile/about-me.md` are
 committed, and commit data changes at the end of every session. Never make
-this flip in a repo that is public or shared.
+this flip in a repo that is public or shared. **Never set `CLADE_DATA_DIR` in a
+cloud session** (ADR-06): git commits to the repo tree *are* the persistence, so
+an out-of-tree data root would silently vanish at session teardown.
 
 Sandbox facts (probed 2026-07 on a real claude.ai/code session):
 
@@ -102,7 +111,9 @@ Sandbox facts (probed 2026-07 on a real claude.ai/code session):
 
 If `profile/about-me.md` doesn't exist, interview the owner before anything
 else: places lived, schools, employers, communities — each with rough years.
-Write it to `profile/about-me.md` (template: `profile/about-me.example.md`).
+Write it to `profile/about-me.md` (template: `profile/about-me.example.md`) —
+pipe the content through `node scripts/data-write.mjs profile/about-me.md` so it
+honors `CLADE_DATA_DIR`, rather than a raw Write (see Conventions).
 This is the disambiguation prior for every future enrichment: connection dates
 cluster by life era, so "Facebook friend added fall 2008" + "was at State U
 2005–2009" turns a bare name into a searchable query. Ask follow-ups until the
@@ -233,8 +244,9 @@ Ambiguous pairs land in `contacts/merge-candidates.json`, each tagged with a
   `identifier` field shows the shared value. Ask which situation it is —
   same person under two names, or two people sharing a line.
 
-Record each ruling in `contacts/merge-decisions.json` (`verdict: "same"` or
-`"different"`) and rebuild. **Envelope shape (schema §5.6):** these overlay files
+Record each ruling with `node scripts/record-merge.mjs --keys "<a>,<b>" --verdict
+same|different` (seam-aware — don't hand-edit `contacts/merge-decisions.json`),
+then rebuild. **Envelope shape (schema §5.6):** these overlay files
 carry a `schemaVersion` wrapper — `merge-decisions.json` is
 `{ "schemaVersion": 1, "decisions": [ … ] }` and `attested.json` is
 `{ "schemaVersion": 1, "entries": { "<key>": … } }`. Put rulings inside
@@ -287,9 +299,10 @@ tags with short bucket labels — and use dates as a hint, not an organizer.
 Serve batches surname-sorted (families cluster), and after the owner answers,
 echo the full name-to-tag mapping back before applying — positional answers
 misalign silently otherwise. The owner's ten-second answer ("college
-roommate's wife", "cousin", "kickball league") goes in
-`contacts/attested.json` under the record's key — `relationship`, `context`,
-optional `domains`. User-attested facts are first-class: an entry with only a
+roommate's wife", "cousin", "kickball league") goes into `attested.json` under
+the record's key — write it with `node scripts/attest.mjs --key <source:id>
+--relationship "..." [--context "..."] [--domains "a,b"] [--real-name "..."]`
+(seam-aware; don't hand-edit the file). User-attested facts are first-class: an entry with only a
 relationship tag is a success, not a failure ("cousin" is exactly what a
 rolodex should say about someone with no web presence). Watch for pseudonymous display names — Facebook names are often "first
 name + middle name" ("Jane Em") or joke names hiding a real surname; when the
@@ -366,19 +379,40 @@ would defeat it.
 - Node ESM scripts, no dependencies, no build step. Match the existing style.
 - **Engine-consumability contract (load-bearing for private data instances).**
   A private instance (e.g. the owner's real data repo) consumes this public
-  engine two ways, both of which depend on invariants that must not be "cleaned
+  engine three ways, all of which depend on invariants that must not be "cleaned
   up" away:
   1. **Direct invocation**: `cd <instance> && node <clade>/scripts/build-index.mjs`.
-     This works only because the wrapper scripts use **cwd-relative** data paths
-     (`contacts/normalized`, `contacts/unified-index.json`, ...). NEVER anchor
-     those to the script's own location (`import.meta.url`): that redirects every
+     Works because the shells resolve data paths through `scripts/paths.mjs`'s
+     `dataPath()`, whose default (`CLADE_DATA_DIR` unset) is **`process.cwd()`** —
+     so a bare `contacts/…` still lands in the instance's cwd. NEVER anchor data
+     paths to the script's own location (`import.meta.url`): that redirects every
      instance build into THIS public repo's `contacts/` — a private-data leak.
-  2. **`file:` symlink dep** (`"clade": "file:../clade"` + wildcard `exports`):
+     (`paths.mjs` itself uses `import.meta.url` to find the *engine root* for a
+     safety tripwire — a different thing from resolving data paths; don't conflate.)
+  2. **`CLADE_DATA_DIR`** (ADR-06): `CLADE_DATA_DIR=<abs-dir> node <clade>/scripts/…`
+     drives data ops against a data dir *outside* this repo, from a Clade cwd —
+     the enabler for retiring an instance repo to a plain data dir. The var must be
+     an **absolute** path **outside** the engine repo (`dataRoot()` throws
+     otherwise — Node never expands `~`). Only built-in DEFAULT paths route through
+     `dataPath()`; user-supplied CLI paths (argv/`--flags`) keep cwd semantics.
+  3. **`file:` symlink dep** (`"clade": "file:../clade"` + wildcard `exports`):
      the instance imports engine functions as `clade/lib/*`. Node resolves a
      symlinked package's imports from its realpath, so **Clade must stay
      zero-runtime-deps** — a runtime dependency here would be looked up in
      Clade's (nonexistent) `node_modules`, breaking the consumer. Keep
-     `dependencies` empty; dev-only tooling is fine.
+     `dependencies` empty; dev-only tooling is fine. (`paths.mjs` lives in
+     `scripts/`, NOT `scripts/lib/`, so the `exports` map never publishes the one
+     env/cwd-reading module — `lib/*` stays 100% data-as-args.)
+- **Agent-direct data writes go through the seam-aware helper scripts, never raw
+  Write.** The pipeline has the operating session record overlay data itself
+  (triage, merge rulings, the interview, quick-add). An env var cannot govern a
+  Write-tool call, so a bare `contacts/attested.json` edit lands in the session's
+  cwd — under `CLADE_DATA_DIR` that is the *public repo*, while `build-index`
+  reads the data dir: the ruling saves but never reaches the index (ADR-06 §3).
+  Use `node scripts/attest.mjs` (attested facts), `node scripts/record-merge.mjs`
+  (merge rulings), and `node scripts/data-write.mjs <path>` (stdin → `about-me.md`,
+  `manual.json`, cloud-fallback enrichment batches) instead of editing those files
+  by hand.
 - **Pseudonymity gate.** This repo is published pseudonymously; the owner's real
   identity must never land in tracked content. `scripts/check-no-owner-identity.sh`
   scans for it and fails loudly. Install it as a pre-push hook on any clone
