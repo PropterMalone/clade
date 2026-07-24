@@ -50,7 +50,8 @@ normalized or overlay file.
 - `node scripts/build-index.mjs` — rebuild the unified index (run after any
   change to normalized sources or overlay files)
 - `node search.mjs <query>` / `--domain <tag>` / `--stats` — query the index
-- `node scripts/enrich-batch.mjs --limit N` — web-research a batch (resumable)
+- `node scripts/enrich-batch.mjs --limit N` — web-research a batch (resumable;
+  `--units solo|confirm|all` targets one tier — see step 3)
 - `node scripts/cue-tag.mjs --cue "..." --tag "..."` — prescreen thin contacts
   against one life-context cue (see pipeline step 4)
 - `touch .stop-enrichment` — stop an enrichment run between batches
@@ -284,6 +285,14 @@ search budget is tiered (1-2 fetches for URL-confirms, up to 5 searches for
 open research, stop at corroboration). Confirm entries must echo their
 contact's LinkedIn URL — mismatches and duplicate `n`s are dropped to retry,
 never banked.
+
+**Targeting a tier — `--units solo|confirm|all`** (default `all`): restrict a run
+to just the solo (thin, prior-carrying) or just the confirm (public LinkedIn)
+contacts. This enables a **hybrid backend**: run `--units solo` on the default
+Claude agent (the prior stays with your own model) and `--units confirm` with a
+cheaper `CLADE_AGENT_CMD` on the public-only confirm batches. The split is the
+same one `planWork` already draws, so no privacy line is crossed either way
+(confirm batches never carry the prior). See `docs/byo-model.md`.
 
 Before the first-ever run, confirm `profile/about-me.md` exists (step 0) —
 enrichment quality for name-only contacts depends on it.

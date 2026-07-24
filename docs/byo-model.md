@@ -107,6 +107,26 @@ banks and you see `no usable result — agent exited 0 but output had no JSON
 block`, your adapter ran but didn't emit the fenced ` ```json ` block Clade
 needs — check step 1.
 
+## Hybrid: a different agent per tier
+
+`enrich-batch.mjs --units solo|confirm|all` restricts a run to one enrichment
+tier (see CLAUDE.md step 3). Because `CLADE_AGENT_CMD` is read per run, you can
+point each tier at a different backend:
+
+```
+# public LinkedIn confirms → a cheap/free grounded model (batched 4/call)
+CLADE_AGENT_CMD=./gemini-adapter.sh node scripts/enrich-batch.mjs --units confirm
+
+# thin contacts → your best agent (these carry the life-history prior)
+node scripts/enrich-batch.mjs --units solo --limit 20
+```
+
+This is privacy-safe by construction: `planWork` never puts the owner's prior or
+attested notes in a confirm batch, so a confirm-only run sends only public
+profile data to whatever backend you point at it. Pair `--units solo` with
+`--guard-cmd` (a usage-meter check) to keep the prior-carrying runs on a premium
+model without blowing a budget.
+
 ## What stays Claude-flavored (and doesn't need to)
 
 - **Query surface.** `export-knowledge.mjs` emits plain markdown; upload it to any
