@@ -140,10 +140,14 @@ because those contacts are identified *by* a LinkedIn URL:
   fetch and is unaffected. A local hybrid run — Gemini on `--units confirm` —
   resolved 127 of 136 contacts (93%) at high or medium confidence.
 
-The prompt no longer *requires* a fetch: it presents the LinkedIn URL as an
-identity anchor to corroborate by whatever route the backend supports, and tells
-the agent that a 999 is expected and not a reason to answer "unidentified". So
-either backend works. But if you are picking one for `--units confirm`
+Neither confirm prompt *requires* a fetch: both present the LinkedIn URL as an
+identity anchor to corroborate by whatever route the backend supports, and tell
+the agent that a 999 is expected and not a reason to answer "unidentified". Both
+matters — a confirm backlog that isn't a multiple of four leaves a single
+contact routed through the solo prompt, so the guidance has to live in each.
+Falling back to search doesn't lower the bar for a match: the same
+corroboration requirement applies, because an `unidentified` result marks the
+contact attempted and it won't come back around on its own. But if you are picking one for `--units confirm`
 specifically, a search-grounded model is the better fit — which is a happy
 accident, since that is also the tier where a cheap model is appropriate. Pair `--units solo` with
 `--guard-cmd` (a usage-meter check) to keep the prior-carrying runs on a premium

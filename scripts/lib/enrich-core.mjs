@@ -124,7 +124,7 @@ Research who this person is professionally using web search, and by fetching URL
 
 ETHICAL CONSTRAINT (mandatory): if this contact is only known by a pseudonymous handle, do NOT unmask a legal name the person hasn't publicly tied to that handle — capture only the public persona + expertise. Named address-book contacts are fine to research normally.
 
-${c.linkedinUrl ? 'The data block already includes a LinkedIn URL — verify it with 1-2 fetches (the profile itself usually settles identity), with at most one extra search if something conflicts.' : 'Use up to 5 web searches/fetches.'} Prefer the person's own pages (LinkedIn, personal site, employer bio) as primary sources, and STOP as soon as you have corroboration — every search past that point spends the owner's quota for nothing.
+${c.linkedinUrl ? 'The data block already includes a LinkedIn URL. Treat it as an IDENTITY ANCHOR — the thing that tells you which person this is — not as a page you must load. Confirm the identity behind it by whichever route your tooling supports: fetching the URL, or searching for the person named in it. Budget 1-2 lookups, at most one extra if something conflicts. NOTE: linkedin.com returns HTTP 999 to many automated fetchers (it keys off the user agent), so a direct fetch may fail through no fault of yours. That is expected, not a dead end: fall back to searching the profile slug and the contact\'s name/employer. Only answer "unidentified" if the SEARCH also fails — never merely because the fetch was blocked.' : 'Use up to 5 web searches/fetches.'} Prefer the person's own pages (LinkedIn, personal site, employer bio) as primary sources, and STOP as soon as you have corroboration — every search past that point spends the owner's quota for nothing.
 
 Output ONLY a single fenced \`\`\`json block (nothing after it) with keys: realName ("" if unconfirmed), profession, employer, expertise (array of lowercase tags), linkedinUrl ("" if none), confidence ("high"|"medium"|"low"|"unidentified"), notes (1-2 sentences: finding + key source).`
 }
@@ -151,15 +151,30 @@ const CONFIDENCE_ENUM = new Set(['high', 'medium', 'low', 'unidentified'])
 // that is ONLY a non-answer becomes "". Anchored end-to-end on purpose: "Unknown
 // Pleasures Records" is a real employer and must survive (field report 2026-07-25;
 // observed as "unknown"/"n/a" in 18 of 3,513 local enrichments).
+// Wrapper class carries brackets/parens/curly quotes because "(unknown)" and
+// "[not found]" are common model emission styles. NOT in the alternation:
+// "nil" and "tbd" — both have real-world namesakes ("NIL" is a major
+// name/image/likeness expertise domain; TBD and NIL d.o.o. are real employers)
+// and the strip happens at BANK time, so a false positive is unrecoverable by
+// rebuild. A placeholder that survives is searchable junk; a real value that
+// doesn't is destroyed. Asymmetric costs, asymmetric list (angel-review).
 const NON_ANSWER_RE =
-  /^[\s"'.\-–—]*(unconfirmed|unknown|unspecified|undetermined|unclear|unavailable|unidentified|not\s+(confirmed|found|known|specified|available|publicly\s+available|listed)|no(ne|t\s+applicable)?|n\.?\/?a\.?|tbd|null|nil|\?+)[\s"'.\-–—]*$/i
+  /^[\s"'.\-–—()[\]“”‘’]*(unconfirmed|unknown|unspecified|undetermined|unclear|unavailable|unidentified|undisclosed|not\s+(confirmed|found|known|specified|available|publicly\s+available|publicly\s+disclosed|listed|provided|disclosed|stated|identified|determined)|unable\s+to\s+determine|no\s+data|no(ne|t\s+applicable)?|n\.?\/?a\.?|null|\?+)[\s"'.\-–—()[\]“”‘’]*$/i
 
 // A value carrying no letter or digit anywhere ("-", "--", "?", "n/a" minus the
 // letters) is a placeholder in every script, including non-Latin ones — the test
 // is "has no word character", so CJK/Cyrillic/accented values are untouched.
 const NO_CONTENT_RE = /^[^\p{L}\p{N}]*$/u
 
-const dropNonAnswer = (s) => (s && !NO_CONTENT_RE.test(s) && !NON_ANSWER_RE.test(s) ? s : '')
+// Exported so enrich-status can COUNT these in the built index without
+// reimplementing the predicate. Deliberate asymmetry: enrichment output is
+// validated (a model was told to leave the field empty and didn't), but source
+// data is ingested faithfully — a LinkedIn export that literally says "none" is
+// the owner's record, not a generator's mistake. Counting is how we'd notice if
+// that call ever stops being right (2026-07-25: 2 of 4,566, all source-derived).
+export const isNonAnswer = (s) => typeof s === 'string' && s !== '' && (NO_CONTENT_RE.test(s) || NON_ANSWER_RE.test(s))
+
+const dropNonAnswer = (s) => (s && !isNonAnswer(s) ? s : '')
 
 export function validateEnrichment(parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
@@ -247,6 +262,8 @@ ${blocks.join('\n')}
 Each contact already includes a strong link (a LinkedIn URL). Treat it as an IDENTITY ANCHOR — the thing that tells you which person this is — not as a page you must load. For EACH numbered contact INDEPENDENTLY: confirm the identity behind that link and capture profession, employer, and expertise, by whichever route your tooling supports — fetching the URL, or searching for the person named in it. Public http/https URLs only, never localhost, private-network hosts, or bare-IP addresses. Budget 1-2 lookups per contact, at most one extra if something conflicts. These people are unrelated: never carry a fact from one contact to another. STOP on each as soon as you have corroboration — extra searching spends the owner's quota for nothing.
 
 NOTE: linkedin.com returns HTTP 999 to many automated fetchers (it keys off the user agent), so a direct fetch may fail through no fault of yours. That is expected, not a dead end: fall back to searching the profile slug and the contact's name/employer, and report what you corroborate. Only answer "unidentified" if the SEARCH also fails — never merely because the fetch was blocked.
+
+Falling back to search does NOT lower the bar for a match: common names need corroboration (employer, city, era) before you accept one, and a plausible-but-wrong person is worse than "unidentified". The URL you echo binds your entry to a specific person — do not echo it for someone you only think is the same person.
 
 ETHICAL CONSTRAINT (mandatory): if a contact is only known by a pseudonymous handle, do NOT unmask a legal name the person hasn't publicly tied to that handle — capture only the public persona + expertise. Named address-book contacts are fine to research normally.
 

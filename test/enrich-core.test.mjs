@@ -112,6 +112,8 @@ test('validateEnrichment whitelists confidence and linkedin urls, caps lengths',
     'https://www.linkedin.com/in/jane',
   )
   assert.equal(validateEnrichment('a string'), null)
+  assert.equal(validateEnrichment(['array']), null)
+  assert.equal(validateEnrichment(null), null)
 })
 
 test('validateEnrichment drops non-answer placeholders instead of indexing them', () => {
@@ -119,7 +121,13 @@ test('validateEnrichment drops non-answer placeholders instead of indexing them'
   // matching every under-researched contact (field report 2026-07-25).
   for (const junk of [
     'unconfirmed', 'Unknown', 'n/a', 'N.A.', 'none', 'Not found',
-    'not publicly available', 'TBD', 'null', '?', '--', 'unspecified',
+    'not publicly available', 'null', '?', '--', 'unspecified',
+    // Wrapped forms — a common model emission style (angel-review).
+    '(unknown)', '[unknown]', '“Unknown”', '(not found)',
+    // Phrasings a non-Claude backend reaches for; the confirm tier now runs on
+    // a different model than the one the original list was built from.
+    'Not provided', 'not disclosed', 'undisclosed', 'not identified',
+    'not determined', 'no data', 'unable to determine',
   ]) {
     const v = validateEnrichment({ profession: junk, employer: junk, realName: junk, confidence: 'low' })
     assert.equal(v.profession, '', `profession: ${junk}`)
@@ -138,8 +146,20 @@ test('validateEnrichment keeps real values that merely contain a non-answer word
   assert.equal(v.employer, 'Unknown Pleasures Records')
   assert.equal(v.profession, 'Director of Unclaimed Property')
   assert.equal(validateEnrichment({ employer: 'Nonesuch Records', confidence: 'high' }).employer, 'Nonesuch Records')
-  assert.equal(validateEnrichment(['array']), null)
-  assert.equal(validateEnrichment(null), null)
+})
+
+test('validateEnrichment keeps NIL and TBD — real values that look like placeholders', () => {
+  // Deliberately NOT in the alternation. "NIL" (name/image/likeness) is a major
+  // sports-law expertise domain; NIL d.o.o. and Block's TBD are real employers.
+  // The strip happens at BANK time, so a false positive is unrecoverable by
+  // rebuild — a surviving placeholder is searchable junk, a destroyed real value
+  // is gone (angel-review).
+  assert.equal(validateEnrichment({ employer: 'NIL', confidence: 'high' }).employer, 'NIL')
+  assert.equal(validateEnrichment({ employer: 'TBD', confidence: 'high' }).employer, 'TBD')
+  assert.deepEqual(
+    validateEnrichment({ expertise: ['NIL', 'sports law'], confidence: 'high' }).expertise,
+    ['nil', 'sports law'],
+  )
 })
 
 test('isEnrichmentRecord: malformed banked values do not count as attempted', () => {
@@ -199,7 +219,13 @@ test('validateCueBatchVerdicts aligns by n and degrades to unsure', async () => 
 
 test('buildPrompt tiers the search budget by seed richness', () => {
   const rich = buildPrompt({ name: 'Jane Wilson', linkedinUrl: 'https://linkedin.com/in/jw' })
-  assert.match(rich, /verify it with 1-2 fetches/)
+  assert.match(rich, /IDENTITY ANCHOR/)
+  // The singleton-confirm path routes through buildPrompt, so the 999 fallback
+  // has to live here too — a run whose confirm backlog is 1 mod 4 hands its last
+  // LinkedIn contact this prompt, and an unwarranted "unidentified" marks that
+  // contact attempted forever (angel-review, 4-way).
+  assert.match(rich, /HTTP 999/)
+  assert.match(rich, /Only answer "unidentified" if the SEARCH also fails/)
   const thin = buildPrompt({ name: 'Jane Wilson' })
   assert.match(thin, /up to 5 web searches/)
   for (const p of [rich, thin]) assert.match(p, /STOP as soon as you have corroboration/)
@@ -361,7 +387,8 @@ test('promptForUnit: solo-thin gets the prior, singleton-confirm gets the rich s
   )
   assert.equal(single.grouped, false)
   assert.ok(!single.prompt.includes(PRIOR), 'rich singleton must not receive the private prior')
-  assert.match(single.prompt, /verify it with 1-2 fetches/)
+  assert.match(single.prompt, /IDENTITY ANCHOR/)
+  assert.match(single.prompt, /HTTP 999/)
   const grouped = promptForUnit(
     { kind: 'confirm', contacts: [
       { name: 'A A', linkedinUrl: 'https://linkedin.com/in/a', keys: ['linkedin:a'] },

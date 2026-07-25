@@ -136,16 +136,35 @@ function acquireLock() {
 
 // Only well-formed banked values count as attempted: a malformed value (e.g. a
 // hand-edited batch file) must be retried, not permanently skipped.
-export function attemptedKeys() {
-  const seen = new Set()
-  if (!existsSync(ENRICH_DIR)) return seen
-  for (const f of readdirSync(ENRICH_DIR).filter((x) => x.endsWith('.json'))) {
+// ONE pass over the banks answering both questions callers have — which keys
+// are attempted, and when anything was last banked. Factored together because
+// they must agree on what counts as a record: a malformed entry that kept a
+// stray enrichedAt but lost its confidence is NOT attempted (it gets retried),
+// so it must not be reported as the last successful bank either (angel-review).
+export function scanBanks({
+  dir = ENRICH_DIR,
+  exists = existsSync,
+  readDir = readdirSync,
+  readFile = readFileSync,
+} = {}) {
+  const attempted = new Set()
+  let lastBankedAt = null
+  if (!exists(dir)) return { attempted, lastBankedAt }
+  for (const f of readDir(dir).filter((x) => x.endsWith('.json'))) {
     try {
-      for (const [k, v] of Object.entries(unwrapEntries(JSON.parse(readFileSync(`${ENRICH_DIR}/${f}`, 'utf8')))))
-        if (isEnrichmentRecord(v)) seen.add(k)
+      for (const [k, v] of Object.entries(unwrapEntries(JSON.parse(readFile(`${dir}/${f}`, 'utf8'))))) {
+        if (!isEnrichmentRecord(v)) continue
+        attempted.add(k)
+        const t = v.enrichedAt
+        if (typeof t === 'string' && (!lastBankedAt || t > lastBankedAt)) lastBankedAt = t
+      }
     } catch { /* skip unreadable */ }
   }
-  return seen
+  return { attempted, lastBankedAt }
+}
+
+export function attemptedKeys() {
+  return scanBanks().attempted
 }
 
 // Exported so enrich-status.mjs reports the SAME queue a run would take, rather

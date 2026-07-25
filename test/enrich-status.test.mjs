@@ -7,7 +7,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { CONFIRM_GROUP_SIZE } from '../scripts/lib/enrich-core.mjs'
-import { humanAge, lastBankedAt, summarize } from '../scripts/enrich-status.mjs'
+import { scanBanks } from '../scripts/enrich-batch.mjs'
+import { humanAge, summarize } from '../scripts/enrich-status.mjs'
 
 const withUrl = (i) => ({ name: `Rich ${i}`, linkedinUrl: `https://www.linkedin.com/in/rich${i}` })
 const thin = (i) => ({ name: `Thin ${i}` })
@@ -41,24 +42,48 @@ test('a confirm remainder still costs a session', () => {
   assert.equal(s.units, 2)
 })
 
-test('lastBankedAt returns null when the bank directory does not exist', () => {
-  assert.equal(lastBankedAt('/nope', { exists: () => false }), null)
+const banks = (files) => ({
+  dir: '/fake',
+  exists: () => true,
+  readDir: () => Object.keys(files),
+  readFile: (p) => files[p.split('/').pop()],
 })
 
-test('lastBankedAt takes the newest enrichedAt across all banks', () => {
-  const files = {
+test('scanBanks returns nothing when the bank directory does not exist', () => {
+  const r = scanBanks({ dir: '/nope', exists: () => false })
+  assert.equal(r.lastBankedAt, null)
+  assert.equal(r.attempted.size, 0)
+})
+
+test('scanBanks takes the newest enrichedAt across all banks', () => {
+  const r = scanBanks(banks({
     'a.json': JSON.stringify({ schemaVersion: 1, entries: { k1: { confidence: 'high', enrichedAt: '2026-01-01T00:00:00Z' } } }),
     'b.json': JSON.stringify({ schemaVersion: 1, entries: { k2: { confidence: 'low', enrichedAt: '2026-07-25T12:00:00Z' } } }),
     'c.json': JSON.stringify({ schemaVersion: 1, entries: { k3: { confidence: 'low' } } }), // no timestamp
-  }
-  const deps = { exists: () => true, readDir: () => Object.keys(files), readFile: (p) => files[p.split('/').pop()] }
-  assert.equal(lastBankedAt('/fake', deps), '2026-07-25T12:00:00Z')
+  }))
+  assert.equal(r.lastBankedAt, '2026-07-25T12:00:00Z')
+  assert.deepEqual([...r.attempted].sort(), ['k1', 'k2', 'k3'])
 })
 
-test('lastBankedAt survives an unreadable bank rather than failing the report', () => {
-  const files = { 'ok.json': JSON.stringify({ entries: { k: { enrichedAt: '2026-05-05T00:00:00Z' } } }), 'broken.json': '{not json' }
-  const deps = { exists: () => true, readDir: () => Object.keys(files), readFile: (p) => files[p.split('/').pop()] }
-  assert.equal(lastBankedAt('/fake', deps), '2026-05-05T00:00:00Z')
+test('scanBanks ignores a malformed record for BOTH answers, not just one', () => {
+  // A hand-edited entry that kept enrichedAt but lost confidence is not
+  // "attempted" (it gets retried) — so it must not be reported as the last
+  // successful bank either. These two answers used to be computed separately
+  // and disagreed here (angel-review).
+  const r = scanBanks(banks({
+    'good.json': JSON.stringify({ entries: { k1: { confidence: 'high', enrichedAt: '2026-01-01T00:00:00Z' } } }),
+    'bad.json': JSON.stringify({ entries: { k2: { enrichedAt: '2026-12-31T00:00:00Z' } } }),
+  }))
+  assert.equal(r.lastBankedAt, '2026-01-01T00:00:00Z', 'malformed record must not win "last banked"')
+  assert.ok(!r.attempted.has('k2'), 'malformed record must stay retryable')
+})
+
+test('scanBanks survives an unreadable bank rather than failing the report', () => {
+  const r = scanBanks(banks({
+    'ok.json': JSON.stringify({ entries: { k: { confidence: 'low', enrichedAt: '2026-05-05T00:00:00Z' } } }),
+    'broken.json': '{not json',
+  }))
+  assert.equal(r.lastBankedAt, '2026-05-05T00:00:00Z')
 })
 
 test('humanAge reads in the largest useful unit', () => {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// pattern: imperative-shell
+// pattern: Functional Core (humanAge/summarize/countNonAnswers) + a thin
+// imperative boundary (main)
 // What enrichment would do next, without doing it. Answers "is there a backlog,
 // how big is the job, and when did I last run?" so a session can offer a batch
 // instead of the owner remembering to ask.
@@ -13,11 +14,10 @@
 // the GO/NO-GO to them. For unattended drip, wire a quota-aware guard to
 // --guard-cmd / CLADE_ENRICH_GUARD; see docs/byo-model.md.
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { attemptedKeys, paths, selectCandidates } from './enrich-batch.mjs'
-import { CONFIRM_GROUP_SIZE, filterByUnitKind, planWork } from './lib/enrich-core.mjs'
-import { unwrapEntries } from './lib/envelope.mjs'
+import { paths, scanBanks } from './enrich-batch.mjs'
+import { CONFIRM_GROUP_SIZE, filterByUnitKind, isNonAnswer, planWork, selectCandidatesFrom } from './lib/enrich-core.mjs'
 
 const AGES = [
   [86400 * 365, 'y'],
@@ -35,22 +35,17 @@ export function humanAge(seconds) {
   return 'just now'
 }
 
-// Most recent enrichedAt across every bank — "when did enrichment last produce
-// anything", which is the question a session-start offer needs.
-export function lastBankedAt(enrichDir, { exists = existsSync, readDir = readdirSync, readFile = readFileSync } = {}) {
-  if (!exists(enrichDir)) return null
-  let latest = null
-  for (const f of readDir(enrichDir).filter((x) => x.endsWith('.json'))) {
-    try {
-      for (const v of Object.values(unwrapEntries(JSON.parse(readFile(`${enrichDir}/${f}`, 'utf8'))))) {
-        const t = v?.enrichedAt
-        if (typeof t === 'string' && (!latest || t > latest)) latest = t
-      }
-    } catch {
-      /* an unreadable bank is enrich-batch's problem, not status's */
-    }
+// Placeholder-valued fields in the BUILT index. Enrichment output can no longer
+// produce these (validateEnrichment drops them), so a nonzero count is
+// source-derived — a converter faithfully carrying an export that literally says
+// "none". ADR-09 says leave those alone; this counts them so that call is under
+// observation rather than assumed (revisit threshold: ~1% of the index).
+export function countNonAnswers(index) {
+  let n = 0
+  for (const c of index) {
+    for (const f of ['name', 'profession', 'employer']) if (isNonAnswer(c[f])) n++
   }
-  return latest
+  return n
 }
 
 // Work units, not contacts: confirm-tier contacts share a session in groups, so
@@ -70,7 +65,7 @@ export function summarize(candidates) {
 
 function main() {
   const json = process.argv.includes('--json')
-  const { index: indexPath, enrichDir, stopFile } = paths()
+  const { index: indexPath, stopFile } = paths()
 
   if (!existsSync(indexPath)) {
     const msg = `No ${indexPath} — run: node scripts/build-index.mjs`
@@ -79,18 +74,24 @@ function main() {
     process.exit(1)
   }
 
-  const total = JSON.parse(readFileSync(indexPath, 'utf8')).length
-  const attempted = attemptedKeys().size
-  const s = summarize(selectCandidates())
-  const last = lastBankedAt(enrichDir)
+  const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  const total = index.length
+  const nonAnswers = countNonAnswers(index)
+  const { attempted, lastBankedAt: last } = scanBanks()
+  const s = summarize(selectCandidatesFrom(index, attempted))
   const lastAgeSec = last ? (Date.now() - Date.parse(last)) / 1000 : null
   const stopped = existsSync(stopFile)
-  const guard = process.env.CLADE_ENRICH_GUARD || null
+  // Report only WHETHER a guard is set. The raw command is plausibly
+  // credential-bearing (an inline `curl -H "Authorization: Bearer ..."` is the
+  // obvious first implementation), and CLAUDE.md has the operating session run
+  // this every session — so printing it would echo a secret into transcripts
+  // that leave the machine (angel-review, 2-way).
+  const guardConfigured = Boolean(process.env.CLADE_ENRICH_GUARD)
 
   if (json) {
     console.log(
       JSON.stringify(
-        { total, attempted, ...s, lastBankedAt: last, lastBankedAgeSec: lastAgeSec, stopFilePresent: stopped, guard },
+        { total, attempted: attempted.size, ...s, nonAnswerFields: nonAnswers, lastBankedAt: last, lastBankedAgeSec: lastAgeSec, stopFilePresent: stopped, guardConfigured },
         null,
         2,
       ),
@@ -101,7 +102,7 @@ function main() {
   const n = (x) => x.toLocaleString()
   console.log('\nClade enrichment status\n')
   console.log(`  index        ${n(total)} contacts`)
-  console.log(`  attempted    ${n(attempted)}`)
+  console.log(`  attempted    ${n(attempted.size)} source keys`)
   console.log(`  backlog      ${n(s.backlog)} with seed signal, not yet attempted`)
   if (s.backlog) {
     console.log(`                 ${n(s.solo)} solo (1 session each)`)
@@ -109,8 +110,11 @@ function main() {
     console.log(`  work units   ${n(s.units)} remaining`)
   }
   console.log(`  last banked  ${last ? `${last} (${humanAge(lastAgeSec)})` : 'never'}`)
+  // Only surface when it's drifting toward the ADR-09 revisit threshold.
+  if (nonAnswers > Math.max(5, total * 0.01))
+    console.log(`  placeholders ${nonAnswers} source-derived non-answer fields (${((nonAnswers / total) * 100).toFixed(1)}%) — see ADR-09`)
   if (stopped) console.log(`  stop file    ${stopFile} PRESENT — runs will halt between batches`)
-  console.log(`  guard        ${guard ? guard : 'none set — runs are ungated (CLADE_ENRICH_GUARD)'}`)
+  console.log(`  guard        ${guardConfigured ? 'configured (CLADE_ENRICH_GUARD)' : 'none set — runs are ungated'}`)
 
   if (!s.backlog) {
     console.log('\nNothing queued. Ingest more sources, or triage thin contacts (CLAUDE.md step 4).\n')
