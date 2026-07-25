@@ -22,27 +22,22 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-// Files that resolve data paths. paths.mjs is the seam itself (exempt); lib/* is
-// path-free by contract (not scanned). Add new shells here.
+// Shells are ENUMERATED, not listed: a hardcoded list only scans files someone
+// remembered to add — the same someone who forgot dataPath(). paths.mjs is the
+// seam itself (exempt); lib/* is path-free by contract (not scanned).
+const EXEMPT = new Set(['paths.mjs'])
 const SHELLS = [
-  'scripts/build-index.mjs',
-  'scripts/enrich-batch.mjs',
-  'scripts/cue-tag.mjs',
-  'scripts/export-knowledge.mjs',
-  'scripts/attest.mjs',
-  'scripts/record-merge.mjs',
-  'scripts/data-write.mjs',
-  'scripts/convert-linkedin.mjs',
-  'scripts/convert-google.mjs',
-  'scripts/convert-facebook.mjs',
-  'scripts/convert-vcard.mjs',
-  'scripts/convert-bluesky.mjs',
+  ...readdirSync(join(ROOT, 'scripts'))
+    .filter((f) => f.endsWith('.mjs') && !EXEMPT.has(f))
+    .map((f) => `scripts/${f}`),
   'search.mjs',
 ]
 
-const DATA_LITERAL = /['"](contacts|imports|profile)\//
-// A dataPath('contacts/…') / dataPath("imports/…") argument — the allowed shape.
-const WRAPPED = /dataPath\(\s*['"](contacts|imports|profile)\/[^'"]*['"]/g
+// Quote forms: ' " and backtick (template literals interpolate data paths too),
+// with an optional ./ prefix — all evade a naive quote-flush-to-keyword regex.
+const DATA_LITERAL = /['"`]\.?\/?(contacts|imports|profile)\//
+// A dataPath('contacts/…') argument in any quote form — the allowed shape.
+const WRAPPED = /dataPath\(\s*['"`]\.?\/?(contacts|imports|profile)\/[^'"`]*['"`]/g
 
 test('every data-path literal in a shell is routed through dataPath()', () => {
   const violations = []
@@ -66,12 +61,29 @@ test('every data-path literal in a shell is routed through dataPath()', () => {
 })
 
 test('a new stray literal WOULD be caught (guard self-check)', () => {
-  // Prove the regex catches the failure it exists to catch, so a future edit
-  // can't neuter the guard without this test noticing.
-  const bad = "const OUT = 'contacts/unified-index.json'"
-  assert.ok(DATA_LITERAL.test(bad.replace(WRAPPED, 'dataPath(_)')))
-  const good = "const OUT = dataPath('contacts/unified-index.json')"
-  assert.ok(!DATA_LITERAL.test(good.replace(WRAPPED, 'dataPath(_)')))
+  // Prove the regex catches the failures it exists to catch, so a future edit
+  // can't neuter the guard without this test noticing. Each evasion form here
+  // slipped past the original quote-flush-to-keyword regex.
+  const caught = (src) => DATA_LITERAL.test(src.replace(WRAPPED, 'dataPath(_)'))
+  assert.ok(caught("const OUT = 'contacts/unified-index.json'"), 'single-quoted')
+  assert.ok(caught('const OUT = "imports/Connections.csv"'), 'double-quoted')
+  assert.ok(caught('const OUT = `contacts/enrichments/${f}`'), 'template literal')
+  assert.ok(caught("const OUT = './contacts/attested.json'"), './-prefixed')
+  assert.ok(caught("readFileSync('profile/about-me.md')"), 'inline arg')
+  // …and does NOT fire on the allowed wrapped form, in any quote style.
+  assert.ok(!caught("const OUT = dataPath('contacts/unified-index.json')"), 'wrapped single')
+  assert.ok(!caught('const OUT = dataPath("imports/Connections.csv")'), 'wrapped double')
+})
+
+test('the shell list is enumerated, so a new shell is scanned automatically', () => {
+  // Guards the guard: if this ever reverts to a hardcoded list, a newly added
+  // script silently stops being checked — the exact gap the seam can't afford.
+  assert.ok(SHELLS.includes('scripts/build-index.mjs'))
+  assert.ok(SHELLS.includes('search.mjs'))
+  assert.ok(!SHELLS.includes('scripts/paths.mjs'), 'the seam itself is exempt')
+  const scripts = readdirSync(join(ROOT, 'scripts')).filter((f) => f.endsWith('.mjs'))
+  // every scripts/*.mjs except paths.mjs (exempt), plus search.mjs at the root
+  assert.equal(SHELLS.length, scripts.length - EXEMPT.size + 1)
 })
 
 test('CLADE_DATA_DIR redirects a shell end-to-end (build-index writes the data dir, not the repo)', () => {

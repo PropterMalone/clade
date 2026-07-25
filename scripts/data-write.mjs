@@ -15,7 +15,7 @@
 // refused. Parent directories are created.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { dataRoot } from './paths.mjs'
 
@@ -49,8 +49,7 @@ function main() {
   }
 
   const content = readStdin()
-  const parent = abs.slice(0, abs.lastIndexOf(sep))
-  mkdirSync(parent, { recursive: true })
+  mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, content)
   console.log(`Wrote ${content.length} bytes → ${abs}`)
 }

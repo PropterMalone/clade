@@ -40,6 +40,10 @@ const PROPOSALS_PATH = (() => {
   const i = process.argv.indexOf('--proposals')
   if (i < 0) return dataPath('contacts/cue-proposals.json')
   const v = process.argv[i + 1]
+  if (v === undefined) {
+    console.error('--proposals needs a file path (e.g. --proposals contacts/cue-hometown.json)')
+    process.exit(1)
+  }
   return isAbsolute(v) ? v : dataPath(v)
 })()
 

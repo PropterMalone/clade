@@ -4,7 +4,7 @@ name: CLADE_DATA_DIR — data ops against an out-of-tree data directory
 date: 2026-07-23
 status: active
 supersedes: null
-commits: []
+commits: [7fd663f, 499547e, 4d643dc, fa38478, f521904, f8715ec]
 ---
 
 # CLADE_DATA_DIR — driving data ops against an out-of-tree data directory
