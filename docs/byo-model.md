@@ -149,6 +149,43 @@ accident, since that is also the tier where a cheap model is appropriate. Pair `
 `--guard-cmd` (a usage-meter check) to keep the prior-carrying runs on a premium
 model without blowing a budget.
 
+## Scheduling: what Clade does and doesn't do
+
+Enrichment is deferrable batch work, so the obvious wish is "run it when I have
+spare quota." Clade goes half way and stops on purpose.
+
+**What ships:** `node scripts/enrich-status.mjs` (`--json` for a parseable form)
+reports what a run would take next — backlog, solo/confirm split, work units,
+when anything was last banked. The operating playbook has your agent surface
+that at session start and offer a batch. That needs no meter, works on any
+provider, and adds no dependency.
+
+**What doesn't, and why:** Clade cannot read your subscription's remaining
+budget. Doing so means a provider-specific meter — and the engine is
+zero-runtime-dependency by contract, because private instances import
+`clade/lib/*` through a `file:` symlink and would break on a dependency here
+(ADR-07). So Clade treats **you** as the quota oracle: it reports the work, you
+decide, because you can see your usage and it can't.
+
+**If you want it automatic**, that is what `--guard-cmd` (or
+`CLADE_ENRICH_GUARD`) is for. Point it at your own script; non-zero vetoes the
+run and Clade reads your first stderr line as the reason. Two things worth
+knowing before you write one:
+
+- **Gate on the long window, not the short one.** A 5-hour window can look
+  empty while the week is two-thirds spent, so gating on the short window pushes
+  the weekly total up exactly when it is tight. Make the weekly (or whatever
+  your plan's long window is) the primary gate and the short one a burst-safety.
+- **Fail closed.** If the meter is missing, unreadable, or stale, veto. A guard
+  that cannot prove headroom has not proved headroom.
+
+The interesting version of this is inverted from a spend limiter: unused
+allocation expires at reset, so the useful signal is *"you have headroom and a
+reset is coming"* — a prompt to spend it on exactly this kind of deferrable
+work. That tool is a good idea and it is not this repo's job; it is
+provider-specific, useful well beyond Clade, and belongs beside it rather than
+inside it.
+
 ## What stays Claude-flavored (and doesn't need to)
 
 - **Query surface.** `export-knowledge.mjs` emits plain markdown; upload it to any

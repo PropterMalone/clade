@@ -11,6 +11,7 @@ test('all shells import without executing their CLI body', async () => {
   await import('../scripts/enrich-batch.mjs')
   await import('../scripts/export-knowledge.mjs')
   await import('../scripts/clade-mcp.mjs') // would wire stdin and never exit
+  await import('../scripts/enrich-status.mjs')
   await import('../search.mjs')
   assert.ok(true)
 })

@@ -136,7 +136,7 @@ function acquireLock() {
 
 // Only well-formed banked values count as attempted: a malformed value (e.g. a
 // hand-edited batch file) must be retried, not permanently skipped.
-function attemptedKeys() {
+export function attemptedKeys() {
   const seen = new Set()
   if (!existsSync(ENRICH_DIR)) return seen
   for (const f of readdirSync(ENRICH_DIR).filter((x) => x.endsWith('.json'))) {
@@ -148,13 +148,17 @@ function attemptedKeys() {
   return seen
 }
 
-function selectCandidates() {
+// Exported so enrich-status.mjs reports the SAME queue a run would take, rather
+// than reimplementing selection and drifting from it.
+export function selectCandidates() {
   if (!existsSync(INDEX_PATH)) {
     console.error(`No ${INDEX_PATH} — run: node scripts/build-index.mjs`)
     process.exit(1)
   }
   return selectCandidatesFrom(JSON.parse(readFileSync(INDEX_PATH, 'utf8')), attemptedKeys())
 }
+
+export const paths = () => ({ index: INDEX_PATH, enrichDir: ENRICH_DIR, stopFile: STOP_FILE })
 
 // --- agent plumbing --------------------------------------------------------------
 // The web-research call goes through the pluggable agent provider (scripts/lib/

@@ -297,6 +297,23 @@ same one `planWork` already draws, so no privacy line is crossed either way
 Before the first-ever run, confirm `profile/about-me.md` exists (step 0) —
 enrichment quality for name-only contacts depends on it.
 
+**Offer a batch when there's a backlog — don't wait to be asked.**
+`node scripts/enrich-status.mjs` (add `--json` for a machine-readable form)
+reports what a run would take next: backlog size, the solo/confirm split, work
+units remaining, and when enrichment last banked anything. Check it early in a
+session where the owner has been ingesting or triaging, and offer — "930
+queued, 624 work units, last run 2h ago; want a batch?" — rather than leaving
+them to remember. Enrichment is deferrable batch work, so the natural moment is
+whenever they have spare capacity.
+
+**Clade does not know their quota, and must not guess.** Reading a subscription's
+remaining budget needs a provider-specific meter, and the engine stays
+zero-dependency (ADR-07). **The owner is the quota oracle** — they can see their
+own usage and you cannot. So report the WORK and let them make the call; never
+assert how much headroom they have. If they want this gated automatically rather
+than offered, that is `--guard-cmd` / `CLADE_ENRICH_GUARD` plus a quota-aware
+guard of their own (`docs/byo-model.md`).
+
 ### 4. Triage — the owner is the best source for thin contacts
 
 For entries still `low`/`unidentified`/`none` after enrichment (Facebook
