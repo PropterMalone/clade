@@ -5,11 +5,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-test('all four shells import without executing their CLI body', async () => {
+test('all shells import without executing their CLI body', async () => {
   // Would throw / exit / hit the filesystem-or-network if entrypoint guards were missing.
   await import('../scripts/build-index.mjs')
   await import('../scripts/enrich-batch.mjs')
   await import('../scripts/export-knowledge.mjs')
+  await import('../scripts/clade-mcp.mjs') // would wire stdin and never exit
   await import('../search.mjs')
   assert.ok(true)
 })

@@ -35,6 +35,23 @@ export function matchesQuery(c, q) {
 // can't drive terminal escape sequences when the owner searches (angel-review).
 const show = (s) => clean(s, 500)
 
+// Shared with scripts/clade-mcp.mjs so the CLI and any MCP server can't drift:
+// docs/mcp-kit.md tells implementers "stats must agree", which only holds if
+// one bucketing rule serves both surfaces (angel-review 2026-07-25).
+export function computeStats(index) {
+  const tiers = {}
+  const sources = {}
+  const domains = {}
+  const confidences = {}
+  for (const c of index) {
+    tiers[c.tier] = (tiers[c.tier] || 0) + 1
+    for (const s of c.sources || []) sources[s] = (sources[s] || 0) + 1
+    for (const d of c.domains || []) domains[d] = (domains[d] || 0) + 1
+    confidences[c.confidence || 'none'] = (confidences[c.confidence || 'none'] || 0) + 1
+  }
+  return { tiers, sources, domains, confidences }
+}
+
 function main() {
   if (!existsSync(indexPath)) {
     console.log('No index yet — run: node scripts/build-index.mjs')
@@ -73,16 +90,7 @@ function main() {
   }
 
   if (showStats) {
-    const tiers = {}
-    const sources = {}
-    const domains = {}
-    const confidences = {}
-    for (const c of index) {
-      tiers[c.tier] = (tiers[c.tier] || 0) + 1
-      for (const s of c.sources || []) sources[s] = (sources[s] || 0) + 1
-      for (const d of c.domains || []) domains[d] = (domains[d] || 0) + 1
-      confidences[c.confidence || 'none'] = (confidences[c.confidence || 'none'] || 0) + 1
-    }
+    const { tiers, sources, domains, confidences } = computeStats(index)
     console.log(`=== ${index.length} contacts ===`)
     console.log('\nTiers:', tiers)
     console.log('Sources:', sources)
