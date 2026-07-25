@@ -123,7 +123,29 @@ node scripts/enrich-batch.mjs --units solo --limit 20
 
 This is privacy-safe by construction: `planWork` never puts the owner's prior or
 attested notes in a confirm batch, so a confirm-only run sends only public
-profile data to whatever backend you point at it. Pair `--units solo` with
+profile data to whatever backend you point at it.
+
+**Fetching vs. grounded search matters most on the confirm tier.**
+`linkedin.com` returns **HTTP 999** to many automated fetchers — it keys off the
+user agent, so a plain `curl` gets 999 where a browser-shaped request gets a
+normal redirect. That has a real effect on which backend suits the confirm tier,
+because those contacts are identified *by* a LinkedIn URL:
+
+- A backend whose web access is **fetch-based** (Claude Code's `WebFetch`, most
+  scrape-then-read tools) can have its LinkedIn fetches refused, and falls back
+  to search. One field report saw three of four confirm-tier contacts fail that
+  way.
+- A backend whose web access is **grounded search** (Gemini and similar, which
+  answer from a search index rather than loading the page) never issues the
+  fetch and is unaffected. A local hybrid run — Gemini on `--units confirm` —
+  resolved 127 of 136 contacts (93%) at high or medium confidence.
+
+The prompt no longer *requires* a fetch: it presents the LinkedIn URL as an
+identity anchor to corroborate by whatever route the backend supports, and tells
+the agent that a 999 is expected and not a reason to answer "unidentified". So
+either backend works. But if you are picking one for `--units confirm`
+specifically, a search-grounded model is the better fit — which is a happy
+accident, since that is also the tier where a cheap model is appropriate. Pair `--units solo` with
 `--guard-cmd` (a usage-meter check) to keep the prior-carrying runs on a premium
 model without blowing a budget.
 

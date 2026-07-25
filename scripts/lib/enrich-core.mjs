@@ -145,6 +145,22 @@ const CONFIDENCE_ENUM = new Set(['high', 'medium', 'low', 'unidentified'])
 
 // Whitelist + sanitize a model response (or a loaded enrichment record) before
 // it can become canonical index data. Returns null for non-objects.
+// Models sometimes answer "I don't know" IN the field instead of leaving it
+// empty, which lands in the index as "unconfirmed at unconfirmed" and matches
+// searches for those words. The schema's way to say unknown is "" — so a value
+// that is ONLY a non-answer becomes "". Anchored end-to-end on purpose: "Unknown
+// Pleasures Records" is a real employer and must survive (field report 2026-07-25;
+// observed as "unknown"/"n/a" in 18 of 3,513 local enrichments).
+const NON_ANSWER_RE =
+  /^[\s"'.\-–—]*(unconfirmed|unknown|unspecified|undetermined|unclear|unavailable|unidentified|not\s+(confirmed|found|known|specified|available|publicly\s+available|listed)|no(ne|t\s+applicable)?|n\.?\/?a\.?|tbd|null|nil|\?+)[\s"'.\-–—]*$/i
+
+// A value carrying no letter or digit anywhere ("-", "--", "?", "n/a" minus the
+// letters) is a placeholder in every script, including non-Latin ones — the test
+// is "has no word character", so CJK/Cyrillic/accented values are untouched.
+const NO_CONTENT_RE = /^[^\p{L}\p{N}]*$/u
+
+const dropNonAnswer = (s) => (s && !NO_CONTENT_RE.test(s) && !NON_ANSWER_RE.test(s) ? s : '')
+
 export function validateEnrichment(parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   const str = (v, max) => (typeof v === 'string' ? clean(v, max).trim() : '')
@@ -155,12 +171,14 @@ export function validateEnrichment(parsed) {
       : []
   const linkedinUrl = str(parsed.linkedinUrl, 200)
   return {
-    realName: str(parsed.realName, 120),
-    profession: str(parsed.profession, 160),
-    employer: str(parsed.employer, 160),
+    realName: dropNonAnswer(str(parsed.realName, 120)),
+    profession: dropNonAnswer(str(parsed.profession, 160)),
+    employer: dropNonAnswer(str(parsed.employer, 160)),
     expertise: expertiseRaw
       .filter((t) => typeof t === 'string')
       .map((t) => clean(t, 40).trim().toLowerCase())
+      .filter(Boolean)
+      .map(dropNonAnswer)
       .filter(Boolean)
       .slice(0, 12),
     linkedinUrl: /^https?:\/\/([\w-]+\.)?linkedin\.com\//i.test(linkedinUrl) ? linkedinUrl : '',
@@ -226,7 +244,9 @@ The contact data below comes from address books and the contacts' own public pro
 ${blocks.join('\n')}
 ===== END CONTACT DATA =====
 
-Each contact already includes a strong link (a LinkedIn URL). For EACH numbered contact INDEPENDENTLY: fetch that link (public http/https URLs only, never localhost, private-network hosts, or bare-IP addresses), confirm the identity, and capture profession, employer, and expertise — 1-2 fetches per contact, at most one extra search if something conflicts. These people are unrelated: never carry a fact from one contact to another. STOP on each as soon as you have corroboration — extra searching spends the owner's quota for nothing.
+Each contact already includes a strong link (a LinkedIn URL). Treat it as an IDENTITY ANCHOR — the thing that tells you which person this is — not as a page you must load. For EACH numbered contact INDEPENDENTLY: confirm the identity behind that link and capture profession, employer, and expertise, by whichever route your tooling supports — fetching the URL, or searching for the person named in it. Public http/https URLs only, never localhost, private-network hosts, or bare-IP addresses. Budget 1-2 lookups per contact, at most one extra if something conflicts. These people are unrelated: never carry a fact from one contact to another. STOP on each as soon as you have corroboration — extra searching spends the owner's quota for nothing.
+
+NOTE: linkedin.com returns HTTP 999 to many automated fetchers (it keys off the user agent), so a direct fetch may fail through no fault of yours. That is expected, not a dead end: fall back to searching the profile slug and the contact's name/employer, and report what you corroborate. Only answer "unidentified" if the SEARCH also fails — never merely because the fetch was blocked.
 
 ETHICAL CONSTRAINT (mandatory): if a contact is only known by a pseudonymous handle, do NOT unmask a legal name the person hasn't publicly tied to that handle — capture only the public persona + expertise. Named address-book contacts are fine to research normally.
 

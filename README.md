@@ -50,6 +50,33 @@ resumable batches that stop cleanly when you close the lid.
 
 That's the whole stack: an agent, Node, and your own data.
 
+### What enrichment actually costs
+
+Worth knowing before you start, because the number is agent time, not money.
+Enrichment researches one contact at a time, except that contacts who already
+carry a LinkedIn URL are cheap confirmations and share a session four at a time.
+So the unit count depends on your mix:
+
+    work units ≈ (contacts with a LinkedIn URL ÷ 4) + (everyone else)
+
+Two real corpora: a 4,566-contact index that is 32% LinkedIn-linked comes to
+~3,500 units (0.76 per contact, so **~7,600 units per 10k contacts**); a
+LinkedIn-heavy network runs nearer 0.48 per contact (**~4,800 per 10k**). Figure
+somewhere between 2,500 and 10,000 units per 10k contacts depending on how much
+of your address book came from LinkedIn.
+
+In wall-clock that is **tens of hours of agent time for a large index**, spread
+over days or weeks — not a number you sit and watch. That is the intended shape,
+not a limitation: runs are fully resumable, attempted contacts are never
+retried, and hitting your plan's usage limit mid-run stops cleanly and picks up
+next time. Start with `--limit 25`, run it when you have quota spare, and let it
+drip. A few hundred contacts is an evening; ten thousand is a project.
+
+You do not have to enrich everything. Enrichment is what turns "a name" into
+"who they are and what they know" — but owner-attested facts (step 4 of the
+pipeline: you telling your agent "college roommate's wife") are first-class data
+that cost nothing and are often more useful than anything the web knows.
+
 ## What it's like
 
 Day one, before your exports even arrive:

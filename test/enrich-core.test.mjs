@@ -112,6 +112,32 @@ test('validateEnrichment whitelists confidence and linkedin urls, caps lengths',
     'https://www.linkedin.com/in/jane',
   )
   assert.equal(validateEnrichment('a string'), null)
+})
+
+test('validateEnrichment drops non-answer placeholders instead of indexing them', () => {
+  // "unconfirmed at unconfirmed" in the index, and a search for "unknown"
+  // matching every under-researched contact (field report 2026-07-25).
+  for (const junk of [
+    'unconfirmed', 'Unknown', 'n/a', 'N.A.', 'none', 'Not found',
+    'not publicly available', 'TBD', 'null', '?', '--', 'unspecified',
+  ]) {
+    const v = validateEnrichment({ profession: junk, employer: junk, realName: junk, confidence: 'low' })
+    assert.equal(v.profession, '', `profession: ${junk}`)
+    assert.equal(v.employer, '', `employer: ${junk}`)
+    assert.equal(v.realName, '', `realName: ${junk}`)
+  }
+})
+
+test('validateEnrichment keeps real values that merely contain a non-answer word', () => {
+  // Anchored end-to-end: these are real employers/titles, not placeholders.
+  const v = validateEnrichment({
+    employer: 'Unknown Pleasures Records',
+    profession: 'Director of Unclaimed Property',
+    confidence: 'high',
+  })
+  assert.equal(v.employer, 'Unknown Pleasures Records')
+  assert.equal(v.profession, 'Director of Unclaimed Property')
+  assert.equal(validateEnrichment({ employer: 'Nonesuch Records', confidence: 'high' }).employer, 'Nonesuch Records')
   assert.equal(validateEnrichment(['array']), null)
   assert.equal(validateEnrichment(null), null)
 })
