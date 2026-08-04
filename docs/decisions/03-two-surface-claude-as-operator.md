@@ -4,7 +4,7 @@ name: Two surfaces (build vs query) + Claude Code as operator
 date: 2026-07-17
 status: active
 supersedes: null
-commits: [105a770, 9c180e7]
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # Two surfaces (build vs query) + Claude Code as operator

@@ -4,7 +4,7 @@ name: Publish the seam — Clade owns contracts, not connections
 date: 2026-07-25
 status: active
 supersedes: null
-commits: []
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # Publish the seam — Clade owns contracts, not connections

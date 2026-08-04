@@ -4,7 +4,7 @@ name: Provenance determines handling — three origin classes, three egress chec
 date: 2026-07-25
 status: active
 supersedes: null
-commits: []
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # Provenance determines handling

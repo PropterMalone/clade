@@ -4,7 +4,7 @@
 // against a private data directory that lives OUTSIDE this public repo's tree.
 //
 // LOAD-BEARING — data paths are cwd-relative by default ON PURPOSE. A private
-// data instance (e.g. Krolodex) runs this engine against ITS OWN data two ways,
+// data instance runs this engine against ITS OWN data two ways,
 // both of which must keep the owner's real contacts out of this public repo:
 //   1. cd <instance> && node <clade>/scripts/build-index.mjs        (cwd = instance)
 //   2. CLADE_DATA_DIR=<instance> node <clade>/scripts/build-index.mjs (from anywhere)

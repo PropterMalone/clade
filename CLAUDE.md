@@ -127,8 +127,8 @@ Interview techniques that matter (each found necessary in practice):
   without a degree, years between cities, gap years. These are invisible to
   any resume-derived source but are often major friend cohorts.
 - **Verify fuzzy dates against the owner's own mailbox** when they have Gmail
-  ingested or handy: "night school around 2011-2012 maybe?" pinned to
-  2010–2014 by the first and last emails from the school's domain. Memory
+  ingested or handy: "night school around then, maybe?" pinned to its true range
+  by the first and last emails from the school's domain. Memory
   compresses long eras; email doesn't.
 - **Online communities produce friends known by handles, not names** (forums,
   gaming). Note these scenes in the prior so triage doesn't misread a
@@ -207,8 +207,8 @@ Known export shapes (verify against the actual file — these drift):
   effectively DEAD: the old `intent/user` redirect that exposed the handle now
   returns a 200 SPA (resolved client-side, behind login), and the API is
   paywalled — so there is no free, scriptable way to turn those IDs into
-  people. Verified 2026-07 on a real archive (1,833 following / 2,770
-  followers, all ID-only; intent URL → 200, no redirect).
+  people. Verified 2026-07 on a real archive (a couple thousand accounts each
+  way, all ID-only; intent URL → 200, no redirect).
   What IS salvageable:
   - **DM partners are the high-value slice**: `data/direct-message-headers.js`
     gives the IDs of everyone the owner actually messaged (still ID-only, but a
@@ -347,7 +347,7 @@ each thin contact gets a conservative web check against the cue, and the
 yes/unsure/no board (with evidence) goes to the owner to corroborate before
 `--apply` writes anything. What to expect, from real use: cues with a
 FINDABLE ROSTER hit hardest (a high-school class page turned one run into a
-lookup table — 16 confirms, zero misses); small institutions beat big cities;
+lookup table — a whole run of confirms, zero misses); small institutions beat big cities;
 hometowns without rosters come back mostly "unsure" — that's honesty, not
 failure. The owner outranks the web in both directions: a web "no" can be
 wrong about which same-named person it found, and an owner "they're X" is
@@ -439,12 +439,42 @@ would defeat it.
   (merge rulings), and `node scripts/data-write.mjs <path>` (stdin → `about-me.md`,
   `manual.json`, cloud-fallback enrichment batches) instead of editing those files
   by hand.
-- **Pseudonymity gate.** This repo is published pseudonymously; the owner's real
-  identity must never land in tracked content. `scripts/check-no-owner-identity.sh`
-  scans for it and fails loudly. Install it as a pre-push hook on any clone
+- **Pseudonymity gate.** This repo is published pseudonymously.
+  **Threat model, stated plainly: unlinkable to strangers, known to friends.**
+  Onboarding happens by personal email from the owner (`docs/onboarding.html`),
+  so everyone invited already knows who wrote it. The gate protects against a
+  stranger reading the repo and arriving at a real identity — not against the
+  social graph it is distributed through. Design to that bar and no further.
+
+  `scripts/check-no-owner-identity.sh` scans tracked content and fails loudly.
+  **Its pattern lives OUTSIDE tracked content** — `CLADE_OWNER_PATTERN` or a
+  gitignored `.owner-pattern` — because a deny-list is a mapping table, not
+  infrastructure: an earlier version hard-coded the pattern and published the
+  exact string it existed to suppress, in the one file a reader opens first,
+  invisibly, because the script excluded itself from its own scan. Configure it
+  on any clone, then install the pre-push hook
   (`printf '#!/usr/bin/env bash\nexec bash "$(git rev-parse --show-toplevel)/scripts/check-no-owner-identity.sh"\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push`).
-  When forward-porting any script from a private instance, treat it as a rewrite
-  that strips personal identifiers and owner quotes — never a copy-paste.
+
+  The gate only catches literal identifiers. Four classes it CANNOT catch, all
+  found in review — treat them as standing rules when writing tracked content:
+  1. **Round every real statistic.** Unit-precision corpus counts are
+     cross-release join keys. "~4,500 contacts, about a third LinkedIn-linked"
+     teaches identically to the exact figures.
+  2. **Never publish a public observable.** Follower/following counts, join
+     dates, anything visible on a profile page is a confirmation oracle against
+     a candidate shortlist.
+  3. **Keep examples on one fictional persona** (the Wichita → Evanston →
+     Chicago fixture family). A real cue or a real contact hiding among mixed
+     example sets is the most narrowing content the repo can carry, and the
+     divergence itself is a tell.
+  4. **No coined vocabulary.** Personal tool and methodology names are
+     exact-string searchable and link this repo to any other artifact — under
+     the pseudonym or the real name — that uses the same words.
+
+  Commit with `TZ=UTC` so the history stops publishing a work rhythm. When
+  forward-porting any script from a private instance, treat it as a rewrite
+  that strips personal identifiers and owner quotes — never a copy-paste, and
+  never carry the instance's own name across.
 - Overlay files (attested, decisions, enrichments) are append-mostly and keyed
   by `<source>:<sourceId>` — never rekey them.
 - After any data change, rebuild the index before answering questions from it.

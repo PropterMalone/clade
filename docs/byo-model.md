@@ -138,7 +138,7 @@ because those contacts are identified *by* a LinkedIn URL:
 - A backend whose web access is **grounded search** (Gemini and similar, which
   answer from a search index rather than loading the page) never issues the
   fetch and is unaffected. A local hybrid run — Gemini on `--units confirm` —
-  resolved 127 of 136 contacts (93%) at high or medium confidence.
+  resolved about 9 in 10 contacts at high or medium confidence.
 
 Neither confirm prompt *requires* a fetch: both present the LinkedIn URL as an
 identity anchor to corroborate by whatever route the backend supports, and tell

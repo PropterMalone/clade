@@ -25,7 +25,7 @@ function claudeEnv() {
 
 // A custom adapter gets a MINIMAL environment, not the full parent env: it is
 // arbitrary owner-configured (often third-party) code that talks to the internet,
-// so it must not inherit every credential in the shell (angel-review — a buggy or
+// so it must not inherit every credential in the shell (review — a buggy or
 // tampered adapter could exfiltrate them). Only PATH/HOME plus the documented
 // CLADE_AGENT_MODEL hint cross the boundary.
 function customEnv(model) {
@@ -85,7 +85,7 @@ function spawnStdin(cmd, args, { env, timeoutMs, maxBuffer, input }) {
       return
     }
     // Decode as UTF-8 so a multibyte codepoint split across pipe chunks is not
-    // corrupted into replacement characters (angel-review — corrupted names/bios
+    // corrupted into replacement characters (review — corrupted names/bios
     // were being banked permanently). setEncoding also makes the length caps below
     // count code units, matching the string accumulators.
     child.stdout.setEncoding('utf8')
@@ -113,7 +113,7 @@ function spawnStdin(cmd, args, { env, timeoutMs, maxBuffer, input }) {
     })
     // stderr is capped symmetrically with stdout — the built-in execFile path
     // bounds both, and a verbose/hostile custom adapter must not balloon memory
-    // for the whole timeout window (angel-review).
+    // for the whole timeout window (review).
     child.stderr.on('data', (d) => {
       stderr += d
       if (stderr.length > maxBuffer) overflow('stderr')

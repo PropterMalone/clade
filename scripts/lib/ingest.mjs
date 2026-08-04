@@ -209,7 +209,7 @@ export function facebookFriendsRecords(text) {
 
   // HTML: split per <section> first so a friend missing a date div can't
   // steal the NEXT friend's date (lazy [\s\S]*? crossed section boundaries —
-  // angel-review 2026-07-19: misattributed dates + silently dropped friends).
+  // review 2026-07-19: misattributed dates + silently dropped friends).
   for (const section of trimmed.split(/<section\b/).slice(1)) {
     const nm = /<h2[^>]*>([^<]+)<\/h2>/.exec(section)
     if (!nm) continue

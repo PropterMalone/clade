@@ -2,7 +2,7 @@
 // Spec for the stdio MCP reference server (scripts/clade-mcp.mjs). Exercises the
 // pure callTool/handleRpc/brief/cleanRecord exports against an in-memory index —
 // the transport loop is the thin part; the contract in docs/mcp-kit.md is what
-// has to hold. Every case here corresponds to an angel-review 2026-07-25 finding.
+// has to hold. Every case here corresponds to an review 2026-07-25 finding.
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'

@@ -59,9 +59,9 @@ So the unit count depends on your mix:
 
     work units ≈ (contacts with a LinkedIn URL ÷ 4) + (everyone else)
 
-Two real corpora: a 4,566-contact index that is 32% LinkedIn-linked comes to
-~3,500 units (0.76 per contact, so **~7,600 units per 10k contacts**); a
-LinkedIn-heavy network runs nearer 0.48 per contact (**~4,800 per 10k**). Figure
+Two real corpora: a ~4,500-contact index about a third LinkedIn-linked comes to
+roughly 0.75 units per contact (so **~7,500 units per 10k contacts**); a
+LinkedIn-heavy network runs nearer half that (**~5,000 per 10k**). Figure
 somewhere between 2,500 and 10,000 units per 10k contacts depending on how much
 of your address book came from LinkedIn.
 

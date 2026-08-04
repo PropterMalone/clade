@@ -1,5 +1,5 @@
 // pattern: functional-core
-// Pins the verified findings of docs/decisions/_angel-review-2026-07-17.md.
+// Pins the verified findings of docs/decisions/_review-2026-07-17.md.
 // Test numbering follows that report's test plan.
 
 import assert from 'node:assert/strict'
@@ -291,7 +291,7 @@ test('absent or junk did values never link', () => {
   assert.equal(resolveRecords(records).groups.length, 2)
 })
 
-// angel-review 2026-07-19 Criticals pinned
+// review 2026-07-19 Criticals pinned
 test('same-surname pair on a shared phone defers — surname is not corroboration', () => {
   const records = [
     rec('facebook:edna2', 'Wilma Foster', { phones: ['5550368218'] }),

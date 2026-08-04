@@ -4,7 +4,7 @@ name: Local-first, export-driven custody
 date: 2026-07-17
 status: active
 supersedes: null
-commits: [9c180e7]
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # Local-first, export-driven custody

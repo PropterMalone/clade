@@ -2,7 +2,7 @@
 // Pure pieces of the enrichment pipeline: candidate selection, prompt
 // construction, and validation of what comes back. Shell: scripts/enrich-batch.mjs.
 //
-// Threat model (angel-review C6): contact fields — names, bios, URLs, handles —
+// Threat model (review C6): contact fields — names, bios, URLs, handles —
 // are written by the *contact* (or scraped from their public profiles), not the
 // owner, and the prompt goes to a live web-browsing claude -p together with the
 // owner's private life history. So: untrusted fields are fenced as data-not-
@@ -150,14 +150,14 @@ const CONFIDENCE_ENUM = new Set(['high', 'medium', 'low', 'unidentified'])
 // searches for those words. The schema's way to say unknown is "" — so a value
 // that is ONLY a non-answer becomes "". Anchored end-to-end on purpose: "Unknown
 // Pleasures Records" is a real employer and must survive (field report 2026-07-25;
-// observed as "unknown"/"n/a" in 18 of 3,513 local enrichments).
+// observed as "unknown"/"n/a" in a handful of several-thousand local enrichments).
 // Wrapper class carries brackets/parens/curly quotes because "(unknown)" and
 // "[not found]" are common model emission styles. NOT in the alternation:
 // "nil" and "tbd" — both have real-world namesakes ("NIL" is a major
 // name/image/likeness expertise domain; TBD and NIL d.o.o. are real employers)
 // and the strip happens at BANK time, so a false positive is unrecoverable by
 // rebuild. A placeholder that survives is searchable junk; a real value that
-// doesn't is destroyed. Asymmetric costs, asymmetric list (angel-review).
+// doesn't is destroyed. Asymmetric costs, asymmetric list (review).
 const NON_ANSWER_RE =
   /^[\s"'.\-–—()[\]“”‘’]*(unconfirmed|unknown|unspecified|undetermined|unclear|unavailable|unidentified|undisclosed|not\s+(confirmed|found|known|specified|available|publicly\s+available|publicly\s+disclosed|listed|provided|disclosed|stated|identified|determined)|unable\s+to\s+determine|no\s+data|no(ne|t\s+applicable)?|n\.?\/?a\.?|null|\?+)[\s"'.\-–—()[\]“”‘’]*$/i
 
@@ -171,7 +171,7 @@ const NO_CONTENT_RE = /^[^\p{L}\p{N}]*$/u
 // validated (a model was told to leave the field empty and didn't), but source
 // data is ingested faithfully — a LinkedIn export that literally says "none" is
 // the owner's record, not a generator's mistake. Counting is how we'd notice if
-// that call ever stops being right (2026-07-25: 2 of 4,566, all source-derived).
+// that call ever stops being right (2026-07-25: two fields across the whole index, all source-derived).
 export const isNonAnswer = (s) => typeof s === 'string' && s !== '' && (NO_CONTENT_RE.test(s) || NON_ANSWER_RE.test(s))
 
 const dropNonAnswer = (s) => (s && !isNonAnswer(s) ? s : '')
@@ -321,7 +321,7 @@ export const linkedinSlug = (u) => {
 // never silently banked). `contacts` are the confirm-group inputs, in order.
 //
 // The model-reported `n` is NOT trusted as an identity join key on its own
-// (angel-review 2026-07-23, verified: rotated n banked wrong-person identities,
+// (review 2026-07-23, verified: rotated n banked wrong-person identities,
 // duplicate n silently last-won). Two guards:
 //  - duplicate n → ALL entries claiming that slot are dropped (never banked);
 //  - each entry must echo the contact's own LinkedIn URL — a returned
@@ -351,7 +351,7 @@ export function validateEnrichmentBatch(parsed, contacts) {
 
 // --- cue tagging ---------------------------------------------------------------
 // "Bang a list of names against a cue": the owner supplies a life-context cue
-// ("grew up in Chadron, NE", "Oberlin College ~2001-2005") and each
+// ("grew up in Wichita, KS", "Northwestern ~2001-2005") and each
 // thin name is web-checked against it. Produces PROPOSALS — the owner confirms
 // before anything becomes an attested fact. Conservative by design: a
 // plausible-but-wrong pre-tag pollutes the rolodex, so 'unsure' is the default

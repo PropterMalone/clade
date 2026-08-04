@@ -9,7 +9,7 @@
 
 // Free-text signatures of a throttle/quota failure. Only trusted when the process
 // ALSO errored — a bio echoing "rate limit" in a successful response must never
-// trip the backoff (angel-review of the original enrich-batch heuristic).
+// trip the backoff (review of the original enrich-batch heuristic).
 export const LIMIT_HIT_RE =
   /out of (?:extra )?usage|rate.?limit|usage.?limit|too many requests|over(?:loaded|capacity)|\b(?:429|503|529)\b/i
 
@@ -23,7 +23,7 @@ const isPlainString = (v) => typeof v === 'string' && v.length > 0
 // spaces); a plain whitespace-separated string is the simple-case fallback. An
 // input that *looks* like a JSON array (`[`) but doesn't parse is a config typo,
 // NOT simple args — return null so the shell can warn instead of silently
-// whitespace-splitting the raw JSON text into garbage (angel-review).
+// whitespace-splitting the raw JSON text into garbage (review).
 export function parseArgs(raw) {
   const s = String(raw || '').trim()
   if (!s) return []
@@ -44,7 +44,7 @@ export function parseArgs(raw) {
 //
 // CLADE_AGENT_MODEL is a hint for CUSTOM adapters only. It is deliberately NOT
 // surfaced in claude mode: the default `claude -p …` path must stay byte-identical
-// (angel-review — CLADE_AGENT_MODEL set alone used to inject `--model` into the
+// (review — CLADE_AGENT_MODEL set alone used to inject `--model` into the
 // default Claude call and break it).
 export function resolveAgentConfig(env = {}) {
   if (env.CLADE_AGENT_CMD) {
@@ -78,7 +78,7 @@ export function classifyOutcome({ code, signal, stdout = '', stderr = '' }, mode
 // it (cue-tag folds stderr into attested `context`), or exports it. A custom
 // adapter wrapping an HTTP backend routinely echoes Authorization headers / API
 // keys to stderr on failure; without this they would reach disk and the exported
-// knowledge file (angel-review — credential-leak vector).
+// knowledge file (review — credential-leak vector).
 export function redactSecrets(s) {
   return String(s || '')
     .replace(/(authorization\s*:\s*)(?:bearer\s+)?\S+/gi, '$1[redacted]')

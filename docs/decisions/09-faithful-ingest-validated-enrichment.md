@@ -4,7 +4,7 @@ name: Ingest is faithful, enrichment is validated
 date: 2026-07-25
 status: active
 supersedes: null
-commits: []
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # Ingest is faithful, enrichment is validated
@@ -22,7 +22,7 @@ and silently discarding a value their export contained is editing it. ADR-01
 makes faithful ingest of the owner's exports the foundational bet, and ADR-08
 already establishes that provenance determines handling — this is that rule one
 level down. The observed scale also does not justify an engine-wide change:
-2 fields out of 4,566 contacts (0.04%), both source-derived.
+2 fields across a several-thousand-contact index (well under 0.1%), both source-derived.
 
 **Rejected alternative**: Run the same filter in the converters. Rejected on
 fidelity (it edits the owner's record), on reversibility (undoing it means
@@ -72,11 +72,11 @@ claim is retained under `unconfirmed`, which nothing indexes.
 **Why**: This is the rule above, applied to a second collision. ADR-09 already
 holds that a value the owner's export carried is *their record*, and that
 silently discarding it is editing it — the placeholder case only asked whether
-we may delete such a value. Overwriting one is the same act. The field case:
-a LinkedIn URL inside the owner's own export resolved to a same-named stranger,
-and the enrichment agent wrote that stranger's a large tech company over the correct
-the nonprofit the export named that the export carried, while its own note recorded that the
-two disagreed. The right answer was in the owner's file the entire time.
+we may delete such a value. Overwriting one is the same act. The field case: a
+LinkedIn URL inside an export resolved to a same-named stranger, and the
+enrichment agent wrote that stranger's employer over the one the export
+carried — while its own note recorded that the two disagreed. The right answer
+was in the export the entire time.
 
 The confidence gate keeps the enrichment feature intact: an export freezes the
 employer at connection date, so a job change still refreshes at `high`, and at
@@ -85,7 +85,7 @@ disagreement is refused.
 
 **Rejected alternative**: give the fold its own conflict test. Tried and
 reverted the same day — an unfiltered tokenizer treated any shared word as
-agreement, so the nonprofit the export named vs "Department of State" read as the same
+agreement, so "Bank of America" vs "Ministry of Truth" read as the same
 employer on "of", reproducing the exact bug through the fix. The comparison now
 reuses the merge-time tokenizer (`tokenizeField` + `EMPLOYER_STOPWORDS`, already
 hardened by an earlier review) with a title-specific stopword set, so merge-time
@@ -93,8 +93,8 @@ and fold-time cannot drift apart again.
 
 **Rejected alternative**: file the refused claim in `notes` as an audit trail.
 Rejected because `notes` feeds `search.mjs`'s match haystack and
-`export-knowledge.mjs`'s Project file, so a refused a large tech company kept returning
-the contact for that employer's search — relocating the bug rather than fixing it.
+`export-knowledge.mjs`'s Project file, so a refused employer kept returning the
+contact in a search for it — relocating the bug rather than fixing it.
 The enrichment's narrative moves to `unconfirmed` alongside the claim for the
 same reason: it argues for the claim by name.
 

@@ -5,7 +5,7 @@ date: 2026-07-17
 updated: 2026-07-22
 status: active
 supersedes: null
-commits: [731aa61]
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # atproto identity model + social-launch gate
@@ -91,7 +91,7 @@ exists to avoid and can't offer provable self-sovereign identity.
   poisoning outpaces correction → only the self-published-profile half survives.
 
 **Oriented in code**: `did` is already a first-class, fully-authoritative
-resolver identifier and unified entries already carry `dids` (731aa61;
+resolver identifier and unified entries already carry `dids` (see pre-publication history;
 docs/schema.md §3). No networking code exists yet — the launch gate and the
 two-layer split are enforced by convention and review today, to become
 architectural when the social layer is built.

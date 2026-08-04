@@ -28,3 +28,7 @@ node_modules/
 
 # local Claude Code settings + their backups (never publish)
 .claude/settings.local.json*
+
+# Pseudonymity gate pattern — the identifiers to scan for. NEVER tracked:
+# the deny-list is itself the protected value.
+.owner-pattern

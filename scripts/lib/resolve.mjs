@@ -9,7 +9,7 @@
 // candidates for a human ruling. A "different" ruling blocks the whole
 // person-pair transitively: the check runs against *current* union-find roots
 // on every candidate comparison, so a third record can never bridge two ruled
-// groups (angel-review C1).
+// groups (review C1).
 
 // --- normalizers ------------------------------------------------------------
 
@@ -74,7 +74,7 @@ const EMPLOYER_STOPWORDS = new Set([
 // export-vs-enrichment comparison ask the same question ("do these two strings
 // name the same thing?"), so they must not drift: a second, unfiltered copy of
 // this logic let "Ford Motor Company" be overwritten by "Acme Company" on the
-// shared token "company" (angel-review 2026-08-04).
+// shared token "company" (review 2026-08-04).
 export const tokenizeField = (raw, stopwords) => {
   const lower = `${raw || ''}`.toLowerCase()
   const set = new Set(
@@ -83,7 +83,7 @@ export const tokenizeField = (raw, stopwords) => {
   if (set.size === 0) {
     // Short names tokenize to nothing ("3M" pre-fix, "AT&T" → at/t, "X"):
     // fall back to the compacted whole name so same-company still overlaps
-    // instead of reading as a conflict (angel-review C4).
+    // instead of reading as a conflict (review C4).
     const compact = lower.replace(/[^a-z0-9]/g, '')
     if (compact) set.add(compact)
   }
@@ -142,7 +142,7 @@ export function resolveRecords(records, decisions = []) {
   // A shared surname is NOT agreement — spouses, siblings, and parent/child
   // share a landline AND a surname (the most common real household case), and
   // partial nameMatch credit for one shared token must never count as
-  // corroboration (angel-review 2026-07-19 Critical). Single-token/blank
+  // corroboration (review 2026-07-19 Critical). Single-token/blank
   // names carry no conflict evidence ("jwilson" ↔ "Jennifer Wilson") and
   // still pass.
   const namesCorroborate = (a, b) => {
@@ -195,7 +195,7 @@ export function resolveRecords(records, decisions = []) {
     }
     for (const [platform, handle] of Object.entries(r.handles || {})) {
       // Non-string placeholders (null, 0, {}) would stringify to truthy junk
-      // like "null" and false-merge every record carrying them (angel-review C5).
+      // like "null" and false-merge every record carrying them (review C5).
       if (typeof handle !== 'string' || !handle.trim()) {
         if (handle != null) warnings.push(`${r.key}: skipping non-string ${platform} handle ${JSON.stringify(handle)}`)
         continue
@@ -236,7 +236,7 @@ export function resolveRecords(records, decisions = []) {
   // A "different" ruling blocks the whole person-pair. Checked against the
   // *current* roots on every comparison — never a precomputed snapshot — so
   // fuzzy unions during the pass can't bridge two blocked groups via a third
-  // record (angel-review C1).
+  // record (review C1).
   function isBlocked(i, j) {
     const ri = find(i)
     const rj = find(j)
@@ -312,7 +312,7 @@ export function resolveRecords(records, decisions = []) {
         } else if (score >= 0.8) {
           // Exact-name-unique pairs with no employer corroboration used to
           // auto-merge here; name equality alone false-merges common names
-          // (angel-review C2), so they now surface as candidates instead —
+          // (review C2), so they now surface as candidates instead —
           // flagged exact-name so the review flow can bulk-propose "same".
           const exactUnique =
             score === 1 && nameTokens(a.name).length >= 2 &&
@@ -359,12 +359,12 @@ const pickEdge = (group) =>
     .map((r) => r.edge)
     // Object.hasOwn, not truthiness: `EDGE_RANK["toString"]` is a live prototype
     // method, so a junk edge like "toString" would both survive and (via the NaN
-    // comparator) displace a real "mutual" (angel-review).
+    // comparator) displace a real "mutual" (review).
     .filter((e) => Object.hasOwn(EDGE_RANK, e))
     .sort((a, b) => EDGE_RANK[b] - EDGE_RANK[a])[0] || null
 
 // Best enrichment wins by confidence, then recency — never by the incidental
-// order enrichment batch files happen to load in (angel-review C3).
+// order enrichment batch files happen to load in (review C3).
 export function pickEnrichment(keys, enrichments) {
   const cands = keys.map((k) => enrichments[k]).filter(Boolean)
   if (cands.length === 0) return null
@@ -377,7 +377,7 @@ export function pickEnrichment(keys, enrichments) {
 
 // For employer/title/bio scalars, professional sources beat social exports and
 // newer connections beat older ones — never incidental directory sort order
-// (angel-review C3). manual = owner-written quick-adds, the freshest signal.
+// (review C3). manual = owner-written quick-adds, the freshest signal.
 const FIELD_SOURCE_RANK = { manual: 3, linkedin: 2 }
 
 export function pickRecordField(group, field) {
@@ -467,7 +467,7 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   // stated authority order — "user-attested facts outrank web research"), and an
   // enrichment realName is only adopted at HIGH confidence — a low/medium web
   // guess must not silently become someone's canonical name, all the more so once
-  // any BYO adapter (not just Claude) can assert it (angel-review — unmasking gate).
+  // any BYO adapter (not just Claude) can assert it (review — unmasking gate).
   let nameSource = 'raw'
   let name
   if (attest?.realName) {
@@ -581,7 +581,7 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
 }
 
 // Ids are unique across the whole build, not just per slug counter — a literal
-// "Jane Wilson 2" must not collide with the second "Jane Wilson" (angel-review).
+// "Jane Wilson 2" must not collide with the second "Jane Wilson" (review).
 export function assignIds(entries) {
   const used = new Set()
   for (const e of entries) {

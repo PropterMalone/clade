@@ -31,7 +31,7 @@ export function skipReason(name) {
 }
 
 // One line, no control chars: these fields feed a markdown file that a second
-// Claude session treats as trusted knowledge (angel-review C6).
+// Claude session treats as trusted knowledge (review C6).
 const line = (s) => clean(s, 1000).replace(/\s+/g, ' ').trim()
 
 function main() {

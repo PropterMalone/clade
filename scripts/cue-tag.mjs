@@ -2,8 +2,8 @@
 // Cue-anchored pre-tagging: web-check a batch of thin contacts against one
 // owner-supplied life-context cue, and propose tags for owner confirmation.
 //
-// Propose: node scripts/cue-tag.mjs --cue "grew up in Chadron, NE (high school 1990s)" \
-//            --tag "hometown friend — Chadron, NE" [--source facebook] [--year 2010] [--limit 40]
+// Propose: node scripts/cue-tag.mjs --cue "grew up in Wichita, KS (high school 1990s)" \
+//            --tag "hometown friend — Wichita, KS" [--source facebook] [--year 2010] [--limit 40]
 // Review:  contacts/cue-proposals.json (grouped yes/unsure/no + evidence)
 // Apply:   node scripts/cue-tag.mjs --apply yes            (all "yes" proposals)
 //          node scripts/cue-tag.mjs --apply facebook:ryan-itani,facebook:alex-fox
@@ -168,7 +168,7 @@ function apply() {
   for (const p of wanted) {
     // Merge over any existing attested fields — never clobber owner-authored
     // facts — and mark provenance: this context came through a web check, not
-    // the owner's own words (angel-review 2026-07-19).
+    // the owner's own words (review 2026-07-19).
     attested[p.key] = {
       ...attested[p.key],
       relationship: tag,

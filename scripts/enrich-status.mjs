@@ -85,7 +85,7 @@ function main() {
   // credential-bearing (an inline `curl -H "Authorization: Bearer ..."` is the
   // obvious first implementation), and CLAUDE.md has the operating session run
   // this every session — so printing it would echo a secret into transcripts
-  // that leave the machine (angel-review, 2-way).
+  // that leave the machine (review, 2-way).
   const guardConfigured = Boolean(process.env.CLADE_ENRICH_GUARD)
 
   if (json) {

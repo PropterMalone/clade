@@ -241,7 +241,7 @@ test('vcardRecords rejects a non-vcard file', async () => {
   assert.match(warnings[0], /BEGIN:VCARD/)
 })
 
-// --- vCard hardening (from the /angel review) --------------------------------
+// --- vCard hardening (from the /code review) --------------------------------
 
 test('vcardRecords parses CRLF + BOM identically to LF — the real on-disk Apple shape', async () => {
   const { vcardRecords } = await import('../scripts/lib/ingest.mjs')

@@ -140,7 +140,7 @@ function acquireLock() {
 // are attempted, and when anything was last banked. Factored together because
 // they must agree on what counts as a record: a malformed entry that kept a
 // stray enrichedAt but lost its confidence is NOT attempted (it gets retried),
-// so it must not be reported as the last successful bank either (angel-review).
+// so it must not be reported as the last successful bank either (review).
 export function scanBanks({
   dir = ENRICH_DIR,
   exists = existsSync,

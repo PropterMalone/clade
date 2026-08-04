@@ -4,7 +4,7 @@ name: pluggable web-research agent (bring-your-own-model)
 date: 2026-07-23
 status: active
 supersedes: null
-commits: [6058d1c, 56a2b4f]
+commits: []  # pre-publication history; not resolvable here
 ---
 
 # Pluggable web-research agent (bring-your-own-model)

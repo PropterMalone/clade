@@ -69,7 +69,7 @@ test('scanBanks ignores a malformed record for BOTH answers, not just one', () =
   // A hand-edited entry that kept enrichedAt but lost confidence is not
   // "attempted" (it gets retried) — so it must not be reported as the last
   // successful bank either. These two answers used to be computed separately
-  // and disagreed here (angel-review).
+  // and disagreed here (review).
   const r = scanBanks(banks({
     'good.json': JSON.stringify({ entries: { k1: { confidence: 'high', enrichedAt: '2026-01-01T00:00:00Z' } } }),
     'bad.json': JSON.stringify({ entries: { k2: { enrichedAt: '2026-12-31T00:00:00Z' } } }),

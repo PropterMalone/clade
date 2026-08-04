@@ -83,7 +83,7 @@ function main() {
 
   // attested.json and merge-decisions.json are singular, hand-written, and hold
   // the owner's irreplaceable facts — a malformed envelope must fail LOUD with the
-  // filename (matching readJson), never silently collapse to empty (angel-review).
+  // filename (matching readJson), never silently collapse to empty (review).
   const attested = failLoud(ATTESTED_PATH, () => unwrapEntries(readJson(ATTESTED_PATH, {})))
   const decisions = failLoud(DECISIONS_PATH, () => unwrapDecisions(readJson(DECISIONS_PATH, [])))
 

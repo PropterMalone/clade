@@ -15,7 +15,7 @@
 // stranded beside "entries", a newer schemaVersion) throws instead of silently
 // collapsing to empty — the old code threw here too, and silently dropping the
 // owner's irreplaceable rulings/attestations is the failure this guards
-// (angel-review).
+// (review).
 
 export const SCHEMA_VERSION = 1
 
@@ -74,5 +74,5 @@ export const wrapDecisions = (decisions) => ({ schemaVersion: SCHEMA_VERSION, de
 // normalized/<source>.json is already a top-level object; schemaVersion rides as
 // a sibling of source/importedAt/records. schemaVersion is placed LAST so it wins
 // even if `obj` already carries one (e.g. a migrator re-stamping older data) —
-// the stamp must reflect THIS build, not the input (angel-review).
+// the stamp must reflect THIS build, not the input (review).
 export const stampSource = (obj) => ({ ...obj, schemaVersion: SCHEMA_VERSION })

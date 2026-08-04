@@ -122,7 +122,7 @@ test('validateEnrichment drops non-answer placeholders instead of indexing them'
   for (const junk of [
     'unconfirmed', 'Unknown', 'n/a', 'N.A.', 'none', 'Not found',
     'not publicly available', 'null', '?', '--', 'unspecified',
-    // Wrapped forms — a common model emission style (angel-review).
+    // Wrapped forms — a common model emission style (review).
     '(unknown)', '[unknown]', '“Unknown”', '(not found)',
     // Phrasings a non-Claude backend reaches for; the confirm tier now runs on
     // a different model than the one the original list was built from.
@@ -153,7 +153,7 @@ test('validateEnrichment keeps NIL and TBD — real values that look like placeh
   // sports-law expertise domain; NIL d.o.o. and Block's TBD are real employers.
   // The strip happens at BANK time, so a false positive is unrecoverable by
   // rebuild — a surviving placeholder is searchable junk, a destroyed real value
-  // is gone (angel-review).
+  // is gone (review).
   assert.equal(validateEnrichment({ employer: 'NIL', confidence: 'high' }).employer, 'NIL')
   assert.equal(validateEnrichment({ employer: 'TBD', confidence: 'high' }).employer, 'TBD')
   assert.deepEqual(
@@ -178,10 +178,10 @@ test('clean strips terminal escapes but keeps hyphens and unicode letters', () =
 
 test('buildCuePrompt fences the name and keeps the cue outside the fence', async () => {
   const { buildCuePrompt } = await import('../scripts/lib/enrich-core.mjs')
-  const p = buildCuePrompt({ name: 'Evil\x1b]52;GUY', connectedOn: { facebook: '2010-05-01' } }, 'grew up in Chadron, Nebraska')
+  const p = buildCuePrompt({ name: 'Evil\x1b]52;GUY', connectedOn: { facebook: '2010-05-01' } }, 'grew up in Wichita, Kansas')
   assert.match(p, /BEGIN CONTACT DATA \(untrusted\)/)
   assert.ok(!p.includes('\x1b'))
-  assert.match(p, /CUE \(owner-authored, trusted\): grew up in Chadron, Nebraska/)
+  assert.match(p, /CUE \(owner-authored, trusted\): grew up in Wichita, Kansas/)
   assert.match(p, /friended on facebook: 2010-05-01/)
 })
 
@@ -223,7 +223,7 @@ test('buildPrompt tiers the search budget by seed richness', () => {
   // The singleton-confirm path routes through buildPrompt, so the 999 fallback
   // has to live here too — a run whose confirm backlog is 1 mod 4 hands its last
   // LinkedIn contact this prompt, and an unwarranted "unidentified" marks that
-  // contact attempted forever (angel-review, 4-way).
+  // contact attempted forever (review, 4-way).
   assert.match(rich, /HTTP 999/)
   assert.match(rich, /Only answer "unidentified" if the SEARCH also fails/)
   const thin = buildPrompt({ name: 'Jane Wilson' })
@@ -287,7 +287,7 @@ test('validateEnrichmentBatch aligns by n and degrades bad entries to null', () 
   assert.deepEqual(validateEnrichmentBatch('junk', confirmContacts(2)), [null, null])
 })
 
-// angel-review 2026-07-23 Critical (verified live): model-reported n was the only
+// review 2026-07-23 Critical (verified live): model-reported n was the only
 // identity join key — rotated n banked wrong-person identities, duplicate n last-won.
 test('validateEnrichmentBatch rejects entries whose linkedinUrl does not match the slot contact', () => {
   // rotated numbering: entry claims n:1 but carries contact 2's URL — must not bank
@@ -324,7 +324,7 @@ test('validateEnrichmentBatch drops ALL claimants of a duplicated n', () => {
   assert.deepEqual(out, [null, null])
 })
 
-// angel-review 2026-07-23 (verified live): the urls slice(0,5) could drop the
+// review 2026-07-23 (verified live): the urls slice(0,5) could drop the
 // appended-last linkedinUrl while the prompt claimed it was present.
 test('contact block always carries the linkedinUrl even when 5+ other urls precede it', () => {
   const c = {

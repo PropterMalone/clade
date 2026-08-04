@@ -32,12 +32,12 @@ export function matchesQuery(c, q) {
 }
 
 // Contact fields are third-party text; strip control chars so a crafted bio
-// can't drive terminal escape sequences when the owner searches (angel-review).
+// can't drive terminal escape sequences when the owner searches (review).
 const show = (s) => clean(s, 500)
 
 // Shared with scripts/clade-mcp.mjs so the CLI and any MCP server can't drift:
 // docs/mcp-kit.md tells implementers "stats must agree", which only holds if
-// one bucketing rule serves both surfaces (angel-review 2026-07-25).
+// one bucketing rule serves both surfaces (review 2026-07-25).
 export function computeStats(index) {
   const tiers = {}
   const sources = {}

@@ -11,8 +11,8 @@ import { resolveDataRoot } from '../scripts/paths.mjs'
 const ENGINE = '/home/user/Projects/clade'
 
 test('unset CLADE_DATA_DIR → cwd (direct-invocation contract preserved)', () => {
-  const { root, warn } = resolveDataRoot({}, '/home/user/Krolodex', ENGINE)
-  assert.equal(root, '/home/user/Krolodex')
+  const { root, warn } = resolveDataRoot({}, '/home/user/private-data', ENGINE)
+  assert.equal(root, '/home/user/private-data')
   assert.equal(warn, null)
 })
 
@@ -24,11 +24,11 @@ test('unset + cwd IS the engine repo → returns cwd but warns', () => {
 
 test('absolute CLADE_DATA_DIR outside the repo → that path, no warning', () => {
   const { root, warn } = resolveDataRoot(
-    { CLADE_DATA_DIR: '/home/user/Krolodex' },
+    { CLADE_DATA_DIR: '/home/user/private-data' },
     ENGINE,
     ENGINE,
   )
-  assert.equal(root, '/home/user/Krolodex')
+  assert.equal(root, '/home/user/private-data')
   assert.equal(warn, null)
 })
 
@@ -40,10 +40,10 @@ test('relative CLADE_DATA_DIR → throws (would resolve inside cwd)', () => {
 })
 
 test('~-prefixed CLADE_DATA_DIR → throws (Node never expands ~)', () => {
-  // The killer case from the review: ~/Krolodex is not absolute to Node, so
-  // tolerate-and-resolve would have produced <cwd>/~/Krolodex inside the repo.
+  // The killer case from the review: ~/private-data is not absolute to Node, so
+  // tolerate-and-resolve would have produced <cwd>/~/private-data inside the repo.
   assert.throws(
-    () => resolveDataRoot({ CLADE_DATA_DIR: '~/Krolodex' }, ENGINE, ENGINE),
+    () => resolveDataRoot({ CLADE_DATA_DIR: '~/private-data' }, ENGINE, ENGINE),
     /must be an absolute path/,
   )
 })
