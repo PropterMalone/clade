@@ -393,3 +393,144 @@ test('a low/medium-confidence enrichment realName is NOT adopted as the display 
   assert.equal(folded.name, 'jaydub')
   assert.equal(folded.nameSource, 'raw')
 })
+
+// --- first-party employer/title precedence (field case 2026-08-04) ---
+// Enrichment silently overwriting the owner's own export is editing their
+// record (ADR-09). The field case: a LinkedIn URL in the export resolved to a
+// same-named stranger, and a MEDIUM-confidence "Microsoft" replaced the correct
+// "Ridgeline Advocacy" that was on file the whole time.
+
+for (const confidence of ['low', 'medium']) {
+  test(`a ${confidence}-confidence enrichment employer does NOT overwrite a conflicting export employer`, () => {
+    const folded = foldGroup([rec('linkedin:rv', 'Robin Vance', { employer: 'Ridgeline Advocacy' })], {
+      enrichments: { 'linkedin:rv': { employer: 'Microsoft', confidence } },
+    })
+    assert.equal(folded.employer, 'Ridgeline Advocacy')
+  })
+}
+
+// The stopword gap that the first version of this fix shipped with: two values
+// sharing only a legal suffix or a function word are NOT the same employer.
+for (const [own, web] of [
+  ['Ford Motor Company', 'Acme Company'],
+  ['Acme Inc', 'Zenith Inc'],
+  ['Bank of America', 'Ministry of Truth'],
+  ['Ridgeline Advocacy Group', 'Harborview Legal Group'],
+  ['AT&T', 'T-Mobile'],
+]) {
+  test(`"${web}" does not overwrite "${own}" on a shared generic token`, () => {
+    const folded = foldGroup([rec('linkedin:e', 'Pat Ray', { employer: own })], {
+      enrichments: { 'linkedin:e': { employer: web, confidence: 'medium' } },
+    })
+    assert.equal(folded.employer, own)
+  })
+}
+
+for (const [own, web] of [
+  ['Marketing Manager', 'Product Manager'],
+  ['Chief Counsel', 'Chief Marketing Officer'],
+  ['Vice President of Sales', 'Vice President of Engineering'],
+]) {
+  test(`title "${web}" does not overwrite "${own}" on a shared hierarchy word`, () => {
+    const folded = foldGroup([rec('linkedin:t', 'Lee Ash', { title: own })], {
+      enrichments: { 'linkedin:t': { profession: web, confidence: 'medium' } },
+    })
+    assert.equal(folded.profession, own)
+  })
+}
+
+test('a rejected web claim is NOT written into the searchable notes field', () => {
+  const folded = foldGroup([rec('linkedin:rv', 'Robin Vance', { employer: 'Ridgeline Advocacy' })], {
+    enrichments: { 'linkedin:rv': { employer: 'Microsoft', confidence: 'medium' } },
+  })
+  assert.doesNotMatch(folded.notes, /Microsoft/)
+})
+
+test('a rejected web claim is kept for audit under `unconfirmed`', () => {
+  const folded = foldGroup([rec('linkedin:rv', 'Robin Vance', { employer: 'Ridgeline Advocacy' })], {
+    enrichments: { 'linkedin:rv': { employer: 'Microsoft', confidence: 'medium' } },
+  })
+  assert.equal(folded.unconfirmed.employer, 'Microsoft')
+})
+
+test('a rejected TITLE claim is kept too — the audit trail is not employer-only', () => {
+  const folded = foldGroup([rec('linkedin:z', 'Lee Ash', { title: 'Chief Counsel' })], {
+    enrichments: { 'linkedin:z': { profession: 'Program Manager', confidence: 'medium' } },
+  })
+  assert.equal(folded.profession, 'Chief Counsel')
+  assert.equal(folded.unconfirmed.profession, 'Program Manager')
+})
+
+test('a web value corroborated by the owner\'s OTHER export is adopted, not refused', () => {
+  // LinkedIn wins pickRecordField on source rank, but Google's record agrees
+  // with the web finding — agreement is evidence it IS the right person.
+  const folded = foldGroup(
+    [
+      rec('linkedin:c', 'Dana Fox', { employer: 'Microsoft' }),
+      rec('google-contacts:c', 'Dana Fox', { employer: 'Ridgeline Advocacy' }),
+    ],
+    { enrichments: { 'linkedin:c': { employer: 'Ridgeline Advocacy', confidence: 'medium' } } },
+  )
+  assert.equal(folded.employer, 'Ridgeline Advocacy')
+})
+
+test('a non-Latin export employer is not overwritten by a web guess at any confidence', () => {
+  const folded = foldGroup([rec('linkedin:jp', 'Aki Sato', { employer: '東京大学' })], {
+    enrichments: { 'linkedin:jp': { employer: 'Some Random LLC', confidence: 'low' } },
+  })
+  assert.equal(folded.employer, '東京大学')
+})
+
+test('a HIGH-confidence enrichment employer still refreshes a stale export employer', () => {
+  const folded = foldGroup([rec('linkedin:x', 'Pat Ray', { employer: 'Old Corp' })], {
+    enrichments: { 'linkedin:x': { employer: 'Totally Different Co', confidence: 'high' } },
+  })
+  assert.equal(folded.employer, 'Totally Different Co')
+})
+
+test('enrichment supplies the employer when the export has none (thin contact)', () => {
+  const folded = foldGroup([rec('facebook:thin', 'Sam Poe')], {
+    enrichments: { 'facebook:thin': { employer: 'Some Studio', confidence: 'low' } },
+  })
+  assert.equal(folded.employer, 'Some Studio')
+})
+
+test('a formatting variant of the same employer is not treated as a conflict', () => {
+  const folded = foldGroup([rec('linkedin:y', 'Dana Fox', { employer: 'Microsoft' })], {
+    enrichments: { 'linkedin:y': { employer: 'Microsoft Corporation', confidence: 'medium' } },
+  })
+  assert.equal(folded.employer, 'Microsoft Corporation')
+})
+
+test('an untrimmed export employer does not list itself as its own prior employer', () => {
+  const folded = foldGroup([rec('linkedin:w', 'Pat Ray', { employer: '  Ridgeline Advocacy  ' })], {
+    enrichments: { 'linkedin:w': { employer: 'Microsoft', confidence: 'medium' } },
+  })
+  assert.equal(folded.employer, 'Ridgeline Advocacy')
+  assert.doesNotMatch(folded.notes, /Ridgeline Advocacy/)
+})
+
+test('the enrichment narrative arguing for a rejected claim leaves searchable notes too', () => {
+  // The narrative names the rejected employer, so leaving it in `notes` would
+  // keep the contact matchable by the very employer this fold refused.
+  const folded = foldGroup([rec('linkedin:si', 'Sam Iyer', { employer: 'Google' })], {
+    enrichments: {
+      'linkedin:si': {
+        employer: 'Northwind Consulting',
+        confidence: 'medium',
+        notes: 'search results indicate a Software Engineer at Northwind Consulting',
+      },
+    },
+  })
+  assert.equal(folded.employer, 'Google')
+  assert.doesNotMatch(folded.notes, /Northwind Consulting/)
+  assert.match(folded.unconfirmed.notes, /Northwind Consulting/)
+})
+
+test('an accepted enrichment keeps its narrative in notes as before', () => {
+  const folded = foldGroup([rec('linkedin:ok', 'Pat Ray', { employer: 'Old Corp' })], {
+    enrichments: { 'linkedin:ok': { employer: 'New Co', confidence: 'high', notes: 'confirmed via firm bio' } },
+  })
+  assert.match(folded.notes, /confirmed via firm bio/)
+  assert.equal(folded.unconfirmed, null)
+})

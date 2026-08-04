@@ -70,20 +70,27 @@ const EMPLOYER_STOPWORDS = new Set([
   'company', 'group', 'gmbh', 'plc',
 ])
 
-export const employerTokens = (r) => {
-  const raw = `${r.employer || ''}`.toLowerCase()
+// One tokenizer, two vocabularies. Merge-time employer comparison and fold-time
+// export-vs-enrichment comparison ask the same question ("do these two strings
+// name the same thing?"), so they must not drift: a second, unfiltered copy of
+// this logic let "Ford Motor Company" be overwritten by "Acme Company" on the
+// shared token "company" (angel-review 2026-08-04).
+export const tokenizeField = (raw, stopwords) => {
+  const lower = `${raw || ''}`.toLowerCase()
   const set = new Set(
-    raw.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !EMPLOYER_STOPWORDS.has(t)),
+    lower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stopwords.has(t)),
   )
   if (set.size === 0) {
     // Short names tokenize to nothing ("3M" pre-fix, "AT&T" → at/t, "X"):
     // fall back to the compacted whole name so same-company still overlaps
     // instead of reading as a conflict (angel-review C4).
-    const compact = raw.replace(/[^a-z0-9]/g, '')
+    const compact = lower.replace(/[^a-z0-9]/g, '')
     if (compact) set.add(compact)
   }
   return set
 }
+
+export const employerTokens = (r) => tokenizeField(r.employer, EMPLOYER_STOPWORDS)
 
 export const employerOverlap = (a, b) => {
   const ta = employerTokens(a)
@@ -397,6 +404,53 @@ function fallbackName(group) {
   return null
 }
 
+// Job titles collide on hierarchy words the way employers collide on legal
+// suffixes — "Marketing Manager" and "Product Manager" are different jobs, and
+// "Chief Counsel" is not "Chief Marketing Officer".
+const TITLE_STOPWORDS = new Set([
+  'the', 'of', 'and', 'for', 'at', 'senior', 'junior', 'chief', 'head', 'lead',
+  'principal', 'staff', 'deputy', 'vice', 'president', 'director', 'manager',
+  'officer', 'specialist', 'coordinator', 'associate', 'assistant', 'executive',
+])
+
+// Two values CONFLICT when they share no identity-bearing token. Fails CLOSED:
+// a value that tokenizes to nothing (a CJK employer under an ASCII tokenizer)
+// counts as a conflict, so first-party data is kept rather than overwritten by
+// a web guess we cannot compare against.
+const valuesConflict = (a, b, stopwords) => {
+  const ta = tokenizeField(a, stopwords)
+  const tb = tokenizeField(b, stopwords)
+  if (!ta.size || !tb.size) return true
+  for (const t of ta) if (tb.has(t)) return false
+  return true
+}
+
+// Which value wins for a field the owner's export AND web research both supply.
+//
+// The rule, precisely: web research wins when the export field is empty, when
+// research is HIGH confidence, or when the web value agrees with ANY first-party
+// value in the group (agreement is evidence it really is the same person, so a
+// low/medium reading that matches the owner's own other export is a corroborated
+// refresh, not a guess). Otherwise the export value stands and the web value is
+// returned as `rejected` for the caller to record separately.
+//
+// Why: enrichment silently overwriting the owner's own export is editing their
+// record, which ADR-09 forbids — the field case (2026-08-04) was a LinkedIn URL
+// in the export resolving to a same-named stranger, whose "Microsoft" replaced
+// the correct employer that was on file the whole time. An export still
+// freezes the employer at connection date, so confident research must be able to
+// refresh a stale value; only an UNcorroborated disagreement is refused.
+function preferExportOnConflict({ web, own, alternates = [], confidence, stopwords }) {
+  const webValue = String(web || '').trim()
+  const ownValue = String(own || '').trim()
+  if (!webValue) return { value: ownValue, rejected: '' }
+  if (!ownValue) return { value: webValue, rejected: '' }
+  if (confidence === 'high') return { value: webValue, rejected: '' }
+  const firstParty = [ownValue, ...alternates.map((a) => String(a || '').trim())].filter(Boolean)
+  const corroborated = firstParty.some((v) => !valuesConflict(webValue, v, stopwords))
+  return corroborated ? { value: webValue, rejected: '' } : { value: ownValue, rejected: webValue }
+}
+
 export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   const keys = group.map((r) => r.key)
   const enrich = pickEnrichment(keys, enrichments)
@@ -435,9 +489,31 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   const employerPick = pickRecordField(group, 'employer')
   const professionPick = pickRecordField(group, 'title')
   const bioPick = pickRecordField(group, 'bio')
-  const employer = enrich?.employer || employerPick.value || ''
-  // Losing employer values stay visible in notes instead of vanishing.
+  const employerChoice = preferExportOnConflict({
+    web: enrich?.employer,
+    own: employerPick.value,
+    alternates: employerPick.alternates,
+    confidence: enrich?.confidence,
+    stopwords: EMPLOYER_STOPWORDS,
+  })
+  const professionChoice = preferExportOnConflict({
+    web: enrich?.profession,
+    own: professionPick.value,
+    alternates: professionPick.alternates,
+    confidence: enrich?.confidence,
+    stopwords: TITLE_STOPWORDS,
+  })
+  const employer = employerChoice.value
+  const rejectedAnyClaim = Boolean(employerChoice.rejected || professionChoice.rejected)
+  // Losing FIRST-PARTY employer values stay visible in notes instead of
+  // vanishing. A rejected web claim deliberately does NOT go here: `notes` feeds
+  // both search.mjs's match haystack and the exported Project knowledge file, so
+  // filing a wrong-person guess as "other/prior employer" would keep surfacing
+  // this contact for that employer — the exact symptom the rule exists to stop.
+  // Rejected claims go to `unconfirmed`, which nothing indexes. Compare trimmed:
+  // the winner is trimmed, so an untrimmed source value would else list itself.
   const otherEmployers = uniq([employerPick.value, ...employerPick.alternates])
+    .map((v) => String(v || '').trim())
     .filter((v) => v && v !== employer)
 
   const phones = []
@@ -469,15 +545,29 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
     handles,
     urls,
     linkedinUrl,
-    profession: enrich?.profession || professionPick.value || '',
+    profession: professionChoice.value,
     employer,
+    // Web claims this fold refused, kept for audit but deliberately NOT indexed
+    // by search or exported to the Project file — they may describe a different
+    // person entirely, which is why they lost. The enrichment's own narrative
+    // comes along when anything was rejected: it argues FOR the rejected claim
+    // ("a same-named engineer at some consultancy…"), so
+    // leaving it in `notes` would keep the contact searchable by the very
+    // employer this fold refused.
+    unconfirmed: rejectedAnyClaim
+      ? {
+          ...(employerChoice.rejected ? { employer: employerChoice.rejected } : {}),
+          ...(professionChoice.rejected ? { profession: professionChoice.rejected } : {}),
+          ...(enrich?.notes ? { notes: enrich.notes } : {}),
+        }
+      : null,
     domains: lower([...(enrich?.expertise || []), ...(attest?.domains || [])]),
     roles: lower(group.map((r) => r.title)),
     labels: uniq(group.flatMap((r) => r.labels || [])),
     bio: bioPick.value || '',
     notes: uniq([
       ...group.map((r) => r.notes),
-      enrich?.notes,
+      rejectedAnyClaim ? null : enrich?.notes,
       otherEmployers.length ? `other/prior employer: ${otherEmployers.join(', ')}` : null,
     ]).join(' / '),
     connectedOn,

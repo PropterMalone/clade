@@ -189,6 +189,23 @@ Array of person entries:
   bridge (hold-back; a future networked build excludes it mechanically, §5.3).
 - `edge`: strongest social-graph tie across the merged person
   (`mutual`/`following`/`follower`), or `null` when no source carries one (§5.5).
+- `employer` / `profession`: the owner's own export values outrank web research
+  when the two DISAGREE and research is not `high` confidence. Precisely, the
+  enrichment value wins when the export field is empty, when confidence is
+  `high`, or when it agrees with ANY first-party value in the merged group
+  (agreement corroborates that it really is the same person). Otherwise the
+  export value stands. Two values agree when they share an identity-bearing
+  token — generic corporate suffixes (`inc`, `llc`, `company`, `group`) and
+  title glue words (`senior`, `manager`, `of`) are stripped first, so
+  "Ford Motor Company" and "Acme Company" DISAGREE. Comparison fails closed: a
+  value that tokenizes to nothing (a non-Latin employer) counts as disagreement,
+  keeping first-party data. See ADR-09.
+- `unconfirmed`: `{ employer?, profession?, notes? }` or `null` — web claims the
+  fold REFUSED, retained for audit. Deliberately **not** indexed by `search.mjs`
+  and not exported to the Project knowledge file: a refused claim may describe a
+  different person entirely, so surfacing it would re-create the bug the
+  precedence rule exists to prevent. The enrichment's narrative moves here too
+  when anything was refused, because it argues for the refused claim.
 - `id` is unique within one build but NOT stable across builds — always use
   `keys` for durable references.
 

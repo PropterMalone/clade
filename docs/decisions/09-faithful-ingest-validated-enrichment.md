@@ -61,3 +61,46 @@ Two limits of the filter, both accepted deliberately:
    `isNonAnswer`. Acceptable while backends are English-answering; if
    `CLADE_AGENT_CMD` commonly points at one that isn't, the trigger will read
    clean while the index fills up.
+
+## Extension (2026-08-04): enrichment may not silently overwrite an export
+
+**Decision**: For `employer` and `profession`, the owner's own export value wins
+over a conflicting web-research value unless the research is `high` confidence
+or is corroborated by some first-party value in the merged group. A refused
+claim is retained under `unconfirmed`, which nothing indexes.
+
+**Why**: This is the rule above, applied to a second collision. ADR-09 already
+holds that a value the owner's export carried is *their record*, and that
+silently discarding it is editing it — the placeholder case only asked whether
+we may delete such a value. Overwriting one is the same act. The field case:
+a LinkedIn URL inside the owner's own export resolved to a same-named stranger,
+and the enrichment agent wrote that stranger's a large tech company over the correct
+the nonprofit the export named that the export carried, while its own note recorded that the
+two disagreed. The right answer was in the owner's file the entire time.
+
+The confidence gate keeps the enrichment feature intact: an export freezes the
+employer at connection date, so a job change still refreshes at `high`, and at
+any confidence when the export field is empty. Only an UNcorroborated
+disagreement is refused.
+
+**Rejected alternative**: give the fold its own conflict test. Tried and
+reverted the same day — an unfiltered tokenizer treated any shared word as
+agreement, so the nonprofit the export named vs "Department of State" read as the same
+employer on "of", reproducing the exact bug through the fix. The comparison now
+reuses the merge-time tokenizer (`tokenizeField` + `EMPLOYER_STOPWORDS`, already
+hardened by an earlier review) with a title-specific stopword set, so merge-time
+and fold-time cannot drift apart again.
+
+**Rejected alternative**: file the refused claim in `notes` as an audit trail.
+Rejected because `notes` feeds `search.mjs`'s match haystack and
+`export-knowledge.mjs`'s Project file, so a refused a large tech company kept returning
+the contact for that employer's search — relocating the bug rather than fixing it.
+The enrichment's narrative moves to `unconfirmed` alongside the claim for the
+same reason: it argues for the claim by name.
+
+**Known gap, not closed here**: `selectCandidatesFrom` (`enrich-core.mjs`) stops
+re-offering a contact once confidence is `high` or `medium`, but this rule only
+ADOPTS a conflicting value at `high`. A contact whose current employer is found
+at `medium` and disagrees with a stale export therefore keeps the stale value and
+is never re-researched. `unconfirmed` makes those contacts findable; wiring them
+back into the enrichment queue is follow-up work.
