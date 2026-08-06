@@ -179,6 +179,10 @@ EMAIL;type=INTERNET;type=WORK:jane.wilson@deloitte.com
 TEL;type=CELL;type=VOICE;type=pref:+1 (555) 123-4567
 item2.URL;type=pref:https://janewilson.example
 X-SOCIALPROFILE;type=twitter:https://twitter.com/janeqw
+item3.ADR;type=HOME;type=pref:;Apt 4;1400 Sherman Ave\, Rear;Evanston;IL;60201;USA
+item3.X-ABLabel:_$!<Home>!$_
+ADR;type=WORK:;Suite 900;111 S Wacker
+ Dr;Chicago;IL;60606;USA
 NOTE:Met at the\, conference; loves\n dogs
 PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQSkZJRgABAQEAYABgAAD/aaaaaaaaaaaaaaaa
  bbbbbbbbbbbbbbbbccccccccccccccccdddddddddddddddd
@@ -256,6 +260,96 @@ test('vcardRecords: a mid-stream BOM (2nd+ file in a merge) does not swallow tha
   const b = '﻿BEGIN:VCARD\nFN:Second File Person\nEMAIL:b@y.com\nEND:VCARD' // BOM-prefixed, as the shell join produces
   const { records } = vcardRecords(`${a}\n${b}`)
   assert.deepEqual(records.map((r) => r.name), ['First File Person', 'Second File Person'])
+})
+
+// --- addresses -----------------------------------------------------------------
+
+test('vcardRecords parses ADR: itemN prefix, escaped comma, folding, type, both cards', async () => {
+  const { vcardRecords } = await import('../scripts/lib/ingest.mjs')
+  const jane = vcardRecords(VCF).records[0]
+  assert.deepEqual(jane.addresses, [
+    {
+      type: 'home',
+      extended: 'Apt 4',
+      street: '1400 Sherman Ave, Rear', // \, unescaped, and the ; components did not shift
+      city: 'Evanston',
+      region: 'IL',
+      postal: '60201',
+      country: 'USA',
+    },
+    {
+      type: 'work',
+      extended: 'Suite 900',
+      street: '111 S WackerDr', // the fold marker is removed, not turned into a space (RFC 6350)
+      city: 'Chicago',
+      region: 'IL',
+      postal: '60606',
+      country: 'USA',
+    },
+  ])
+})
+
+test('vcardRecords derives location from the first address with a city', async () => {
+  const { vcardRecords } = await import('../scripts/lib/ingest.mjs')
+  assert.equal(vcardRecords(VCF).records[0].location, 'Evanston, IL')
+})
+
+test('vcardRecords: an ADR with no city yields no location, and an empty ADR yields no address', async () => {
+  const { vcardRecords } = await import('../scripts/lib/ingest.mjs')
+  const { records } = vcardRecords(
+    'BEGIN:VCARD\nFN:Po Box Only\nADR;type=HOME:PO Box 12;;;;;60201;USA\nEND:VCARD\n' +
+      'BEGIN:VCARD\nFN:Empty Adr\nADR:;;;;;;\nEND:VCARD',
+  )
+  assert.equal(records[0].location, '', 'region/postal/country without a city is not a usable location')
+  assert.deepEqual(records[0].addresses, [{ type: 'home', pobox: 'PO Box 12', postal: '60201', country: 'USA' }])
+  assert.deepEqual(records[1].addresses, [], 'an all-empty ADR must not emit a blank address object')
+  assert.equal(records[1].location, '')
+})
+
+test('vcardRecords: a non-US address falls back to country when there is no region', async () => {
+  const { vcardRecords } = await import('../scripts/lib/ingest.mjs')
+  const { records } = vcardRecords('BEGIN:VCARD\nFN:Abroad Person\nADR:;;10 High St;Bristol;;BS1 4DJ;United Kingdom\nEND:VCARD')
+  assert.equal(records[0].location, 'Bristol, United Kingdom')
+})
+
+test('googleContactsRecords reads Address 1..3 columns and derives location', async () => {
+  const { googleContactsRecords } = await import('../scripts/lib/ingest.mjs')
+  const header = [
+    'First Name,Middle Name,Last Name,File As,E-mail 1 - Value',
+    'Address 1 - Type,Address 1 - Formatted,Address 1 - PO Box,Address 1 - Extended Address,Address 1 - Street,Address 1 - City,Address 1 - Region,Address 1 - Postal Code,Address 1 - Country',
+    'Address 2 - Type,Address 2 - Street,Address 2 - City,Address 2 - Region,Address 2 - Postal Code,Address 2 - Country',
+  ].join(',')
+  const rows = [
+    'Sam,,Whitfield,,sam@x.edu,Home,"1400 Sherman Ave, Evanston, IL 60201",,Apt 4,1400 Sherman Ave,Evanston,IL,60201,USA,Work,111 S Wacker Dr,Chicago,IL,60606,USA',
+    'Robin,,Vasquez,,robin@y.org,,,,,,,,,,,,,,,', // no address at all
+  ].join('\n')
+  const { records } = googleContactsRecords(`${header}\n${rows}`)
+  assert.deepEqual(records[0].addresses, [
+    {
+      type: 'home', // normalized: the CSV ships "Home", vCard ships "HOME"
+      formatted: '1400 Sherman Ave, Evanston, IL 60201',
+      extended: 'Apt 4',
+      street: '1400 Sherman Ave',
+      city: 'Evanston',
+      region: 'IL',
+      postal: '60201',
+      country: 'USA',
+    },
+    { type: 'work', street: '111 S Wacker Dr', city: 'Chicago', region: 'IL', postal: '60606', country: 'USA' },
+  ])
+  assert.equal(records[0].location, 'Evanston, IL')
+  assert.deepEqual(records[1].addresses, [], 'a row with empty address columns emits no address')
+  assert.equal(records[1].location, '')
+})
+
+test('linkedin and facebook records carry no address fields — those exports have none', async () => {
+  const { linkedinRecords, facebookFriendsRecords } = await import('../scripts/lib/ingest.mjs')
+  const li = linkedinRecords(`${PREAMBLE}${HEADER}\nJane,Wilson,https://www.linkedin.com/in/janewilson,,Deloitte,Manager,04 Oct 2019`)
+  assert.deepEqual(li.records[0].addresses, [])
+  assert.equal(li.records[0].location, '')
+  const fb = facebookFriendsRecords(JSON.stringify({ friends_v2: [{ name: 'Chidi Okafor', timestamp: 1289951234 }] }))
+  assert.deepEqual(fb.records[0].addresses, [])
+  assert.equal(fb.records[0].location, '')
 })
 
 test('vcardRecords: a degenerate profile.php URL does NOT become a shared merge handle', async () => {

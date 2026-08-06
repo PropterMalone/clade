@@ -10,7 +10,8 @@
 //   node scripts/attest.mjs --key facebook:jane-em \
 //     --relationship "college roommate's wife" \
 //     --context "Met at State U ~2008; lives in Chicago" \
-//     [--domains "nursing,healthcare"] [--real-name "Jane Emerson"]
+//     [--domains "nursing,healthcare"] [--real-name "Jane Emerson"] \
+//     [--location "Evanston, IL"]
 //
 // Only the fields you pass are set; existing fields on the entry are preserved.
 // All fields are optional except --key. See docs/schema.md §2 (attested.json).
@@ -31,7 +32,7 @@ const flag = (name) => {
 function main() {
   const key = flag('--key')
   if (!key || !key.includes(':')) {
-    console.error('Usage: attest.mjs --key <source:sourceId> [--relationship ..] [--context ..] [--domains a,b] [--real-name ..]')
+    console.error('Usage: attest.mjs --key <source:sourceId> [--relationship ..] [--context ..] [--domains a,b] [--real-name ..] [--location ..]')
     console.error('--key is required and must be a "<source>:<sourceId>" record key.')
     process.exit(1)
   }
@@ -44,13 +45,18 @@ function main() {
   const context = flag('--context')
   const domains = flag('--domains')
   const realName = flag('--real-name')
+  // A city/region, not a street address: the owner saying "they live in Chicago"
+  // outranks both a stale export and web research (ADR-10). Street addresses
+  // come from address-book ingest, not from triage.
+  const location = flag('--location')
   if (relationship !== undefined) entry.relationship = relationship
   if (context !== undefined) entry.context = context
   if (domains !== undefined) entry.domains = domains.split(',').map((d) => d.trim()).filter(Boolean)
   if (realName !== undefined) entry.realName = realName
+  if (location !== undefined) entry.location = location
 
   if (Object.keys(entry).length === 0) {
-    console.error('Nothing to attest — pass at least one of --relationship/--context/--domains/--real-name.')
+    console.error('Nothing to attest — pass at least one of --relationship/--context/--domains/--real-name/--location.')
     process.exit(1)
   }
 

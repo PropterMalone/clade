@@ -413,6 +413,15 @@ const TITLE_STOPWORDS = new Set([
   'officer', 'specialist', 'coordinator', 'associate', 'assistant', 'executive',
 ])
 
+// Localities collide on metro-area phrasing: LinkedIn writes "Greater Chicago
+// Area" where an address book writes "Chicago, IL", and those are the same
+// place. State/country qualifiers are NOT stopwords — "Portland, OR" and
+// "Portland, ME" must stay distinguishable — so only the geography-free glue
+// words are stripped.
+const LOCATION_STOPWORDS = new Set([
+  'the', 'of', 'and', 'greater', 'area', 'metro', 'metropolitan', 'region', 'county', 'city',
+])
+
 // Two values CONFLICT when they share no identity-bearing token. Fails CLOSED:
 // a value that tokenizes to nothing (a CJK employer under an ASCII tokenizer)
 // counts as a conflict, so first-party data is kept rather than overwritten by
@@ -504,7 +513,50 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
     stopwords: TITLE_STOPWORDS,
   })
   const employer = employerChoice.value
-  const rejectedAnyClaim = Boolean(employerChoice.rejected || professionChoice.rejected)
+
+  // Location folds on the same rule as employer/profession (ADR-09): the owner's
+  // own export outranks an uncorroborated web guess. People move, so confident
+  // research must still be able to refresh a locality frozen at connection date.
+  const locationPick = pickRecordField(group, 'location')
+  const locationChoice = preferExportOnConflict({
+    web: enrich?.location,
+    own: locationPick.value,
+    alternates: locationPick.alternates,
+    confidence: enrich?.confidence,
+    stopwords: LOCATION_STOPWORDS,
+  })
+  let location = locationChoice.value
+  let rejectedLocation = locationChoice.rejected
+  // The owner outranks both their stale export and the web — they know where
+  // their own friend lives. A web claim displaced this way was still refused, so
+  // it goes to the audit trail instead of vanishing.
+  const attestedLocation = String(attest?.location || '').trim()
+  if (attestedLocation) {
+    const webLocation = String(enrich?.location || '').trim()
+    if (webLocation && valuesConflict(webLocation, attestedLocation, LOCATION_STOPWORDS)) rejectedLocation = webLocation
+    location = attestedLocation
+  }
+
+  // Street addresses union across the merged person, deduped on the geographic
+  // components — the same home arriving from both a vCard and Google Contacts is
+  // one address, even when one export labels it "home" and the other says
+  // nothing. HOLD-BACK (ADR-10): this array is for the owner's own use and is
+  // stripped from every egress path; `location` above is the shareable grade.
+  const ADDRESS_DEDUPE_FIELDS = ['pobox', 'extended', 'street', 'city', 'region', 'postal', 'country']
+  const addresses = []
+  const seenAddresses = new Set()
+  for (const r of group) {
+    for (const a of r.addresses || []) {
+      if (!a || typeof a !== 'object' || Array.isArray(a)) continue
+      const norm = ADDRESS_DEDUPE_FIELDS.map((f) => String(a[f] ?? '').trim().toLowerCase()).join('|')
+      if (!norm.replace(/\|/g, '')) continue // type-only object: no place in it
+      if (seenAddresses.has(norm)) continue
+      seenAddresses.add(norm)
+      addresses.push(a)
+    }
+  }
+
+  const rejectedAnyClaim = Boolean(employerChoice.rejected || professionChoice.rejected || rejectedLocation)
   // Losing FIRST-PARTY employer values stay visible in notes instead of
   // vanishing. A rejected web claim deliberately does NOT go here: `notes` feeds
   // both search.mjs's match haystack and the exported Project knowledge file, so
@@ -547,6 +599,8 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
     linkedinUrl,
     profession: professionChoice.value,
     employer,
+    location,
+    addresses,
     // Web claims this fold refused, kept for audit but deliberately NOT indexed
     // by search or exported to the Project file — they may describe a different
     // person entirely, which is why they lost. The enrichment's own narrative
@@ -558,6 +612,7 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
       ? {
           ...(employerChoice.rejected ? { employer: employerChoice.rejected } : {}),
           ...(professionChoice.rejected ? { profession: professionChoice.rejected } : {}),
+          ...(rejectedLocation ? { location: rejectedLocation } : {}),
           ...(enrich?.notes ? { notes: enrich.notes } : {}),
         }
       : null,

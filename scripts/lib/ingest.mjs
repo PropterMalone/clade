@@ -132,6 +132,10 @@ export function linkedinRecords(csvText) {
       handles: {},
       bio: '',
       labels: credentials,
+      // Connections.csv has no address or location column at all — not a
+      // dropped field, an absent one.
+      addresses: [],
+      location: '',
       connectedOn: parseConnectedOn(col(row, 'Connected On')),
       notes: '',
     })
@@ -174,6 +178,8 @@ const fbRecord = (name, connectedOn, usedIds) => {
     handles: {},
     bio: '',
     labels: [],
+    addresses: [],
+    location: '',
     connectedOn,
     notes: '',
   }
@@ -234,6 +240,39 @@ export function facebookFriendsRecords(text) {
 const splitMulti = (v) => String(v || '').split(' ::: ').map((s) => s.trim()).filter(Boolean)
 const looksLikeEmail = (e) => e.includes('@') && !e.includes(' ')
 
+// --- addresses (shared by the two address-book sources: Google Contacts, vCard) ---
+// A rolodex keeps TWO grades of address and they are not interchangeable (see
+// docs/decisions/10): the structured street address is hold-back — it exists so
+// the owner can mail someone — while `location` is the coarse locality that
+// search, enrichment prompts, and the exports may use. Both are derived here, at
+// the one place an address enters the system, so no converter can produce one
+// without the other.
+const ADDRESS_FIELDS = ['formatted', 'pobox', 'extended', 'street', 'city', 'region', 'postal', 'country']
+
+// Empty components are dropped, and a card carrying nothing but a TYPE
+// (`ADR;type=HOME:;;;;;;` — common in exports where the field was never filled)
+// yields null rather than an empty object every downstream reader must guard.
+export function buildAddress(parts) {
+  const out = {}
+  const type = String(parts.type ?? '').trim().toLowerCase()
+  if (type) out.type = type
+  for (const f of ADDRESS_FIELDS) {
+    const v = String(parts[f] ?? '').trim()
+    if (v) out[f] = v
+  }
+  return Object.keys(out).some((k) => k !== 'type') ? out : null
+}
+
+// A locality needs a CITY. A bare "IL" or "USA" is not somewhere a person can be
+// found, and indexing thousands of identical country strings would make the
+// location filter useless. Region is preferred over country as the qualifier
+// ("Evanston, IL"); country carries it for addresses with no region ("Bristol,
+// United Kingdom").
+export const deriveLocation = (addresses) => {
+  const a = (addresses || []).find((x) => x.city)
+  return a ? [a.city, a.region || a.country].filter(Boolean).join(', ') : ''
+}
+
 export function googleContactsRecords(csvText) {
   const rows = parseCsv(csvText)
   if (rows.length < 2) return { records: [], warnings: ['empty file'] }
@@ -283,6 +322,25 @@ export function googleContactsRecords(csvText) {
       .map((l) => l.replace(/^\* /, ''))
       .filter((l) => !['myContacts', 'starred'].includes(l)) // system groups carry no signal
 
+    // Google numbers address blocks the way it numbers emails and phones. Three
+    // covers home/work/other; a fourth is vanishingly rare and costs a whole
+    // column set, so read what the header actually offers and stop.
+    const addresses = []
+    for (let n = 1; n <= 3; n++) {
+      const addr = buildAddress({
+        type: col(row, `Address ${n} - Type`),
+        formatted: col(row, `Address ${n} - Formatted`),
+        pobox: col(row, `Address ${n} - PO Box`),
+        extended: col(row, `Address ${n} - Extended Address`),
+        street: col(row, `Address ${n} - Street`),
+        city: col(row, `Address ${n} - City`),
+        region: col(row, `Address ${n} - Region`),
+        postal: col(row, `Address ${n} - Postal Code`),
+        country: col(row, `Address ${n} - Country`),
+      })
+      if (addr) addresses.push(addr)
+    }
+
     records.push({
       sourceId,
       name: displayName,
@@ -294,6 +352,8 @@ export function googleContactsRecords(csvText) {
       handles: {},
       bio: '',
       labels,
+      addresses,
+      location: deriveLocation(addresses),
       connectedOn: '',
       notes: col(row, 'Notes'),
     })
@@ -415,11 +475,15 @@ const addVcardHandle = (c, p) => {
   if (handle && !c.handles[service]) c.handles[service] = handle
 }
 
-// Extract the fields we keep from one card's content lines. PHOTO, ADR, BDAY,
+// Extract the fields we keep from one card's content lines. PHOTO, BDAY,
 // VERSION, PRODID, X-ABUID and friends are intentionally dropped — a rolodex
-// doesn't need them, and PHOTO in particular is a multi-KB base64 blob.
+// doesn't need them, and PHOTO in particular is a multi-KB base64 blob. ADR was
+// dropped for the same reason until 2026-08-06; it is now kept, because an
+// address book without addresses cannot answer either question people actually
+// ask it ("where does Jane live", "who do I know in Chicago"). See ADR-10 for
+// the hold-back rules that come with keeping it.
 function parseVcard(lines) {
-  const c = { fn: '', n: null, emails: [], phones: [], urls: [], org: '', title: '', notes: '', uid: '', handles: {}, labels: [] }
+  const c = { fn: '', n: null, emails: [], phones: [], urls: [], org: '', title: '', notes: '', uid: '', handles: {}, labels: [], addresses: [] }
   let qpSeen = false
   for (const line of lines) {
     const p = parseVcardLine(line)
@@ -437,6 +501,19 @@ function parseVcard(lines) {
       case 'URL':
       case 'X-URL': { const u = p.value.trim(); if (u) c.urls.push(u); break } // URI-typed: not backslash-escaped per RFC 6350
       case 'ORG': if (!c.org) c.org = splitVcardStructured(p.value, ';').map((s) => unescapeVcard(s).trim()).find(Boolean) || ''; break
+      // RFC 6350 §6.3.1: po-box; extended; street; locality; region; postal; country.
+      // Split on UNescaped ';' first (an address line legitimately contains
+      // escaped ones), then unescape each component — the same two-step the
+      // structured N and ORG properties use.
+      case 'ADR': {
+        const [pobox, extended, street, city, region, postal, country] = splitVcardStructured(p.value, ';').map((s) => unescapeVcard(s).trim())
+        const addr = buildAddress({
+          type: (p.params.type || []).find((t) => t !== 'pref') || '',
+          pobox, extended, street, city, region, postal, country,
+        })
+        if (addr) c.addresses.push(addr)
+        break
+      }
       case 'TITLE': if (!c.title) c.title = unescapeVcard(p.value).trim(); break
       case 'NOTE': if (!c.notes) c.notes = unescapeVcard(p.value).trim(); break
       case 'UID': if (!c.uid) c.uid = p.value.trim().replace(/^urn:uuid:/i, ''); break
@@ -536,6 +613,8 @@ export function vcardRecords(text) {
       handles: card.handles,
       bio: '',
       labels: [...new Set(card.labels)],
+      addresses: card.addresses,
+      location: deriveLocation(card.addresses),
       connectedOn: '',
       notes: card.notes,
     })
@@ -589,6 +668,12 @@ const blueskyRecord = (actor, edge) => {
     edge,
     bio,
     labels: [],
+    // atproto profileView carries no address. A city mentioned in bio prose is
+    // self-asserted free text, not a structured field, and stays in `bio` —
+    // promoting it to `location` would let any follower assert a locality onto a
+    // contact, the same trap that keeps bio URLs out of urls[] above.
+    addresses: [],
+    location: '',
     connectedOn: '',
     notes: '',
   }

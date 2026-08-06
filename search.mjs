@@ -22,7 +22,7 @@ const indexPath = dataPath('contacts/unified-index.json')
 export function matchesQuery(c, q) {
   if (!q) return true
   const haystack = [
-    c.name, c.profession, c.employer, c.bio, c.notes,
+    c.name, c.profession, c.employer, c.location, c.bio, c.notes,
     c.attested?.relationship, c.attested?.context,
     ...Object.values(c.handles || {}),
     ...(c.domains || []), ...(c.roles || []),
@@ -61,13 +61,14 @@ function main() {
   const args = process.argv.slice(2)
 
   if (args.length === 0) {
-    console.log('usage: node search.mjs [--domain TAG] [--role ROLE] [--confidence LEVEL] [--source SRC] [--tier TIER] [--stats] [--limit N] [QUERY...]')
+    console.log('usage: node search.mjs [--domain TAG] [--role ROLE] [--location CITY] [--confidence LEVEL] [--source SRC] [--tier TIER] [--stats] [--limit N] [QUERY...]')
     console.log(`index: ${index.length} contacts (${indexPath})`)
     process.exit(0)
   }
 
   let domainFilter = null
   let roleFilter = null
+  let locationFilter = null
   let confFilter = null
   let sourceFilter = null
   let tierFilter = null
@@ -78,6 +79,7 @@ function main() {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--domain' && args[i + 1]) domainFilter = args[++i].toLowerCase()
     else if (args[i] === '--role' && args[i + 1]) roleFilter = args[++i].toLowerCase()
+    else if (args[i] === '--location' && args[i + 1]) locationFilter = args[++i].toLowerCase()
     else if (args[i] === '--confidence' && args[i + 1]) confFilter = args[++i].toLowerCase()
     else if (args[i] === '--source' && args[i + 1]) sourceFilter = args[++i].toLowerCase()
     else if (args[i] === '--tier' && args[i + 1]) tierFilter = args[++i].toLowerCase()
@@ -107,6 +109,7 @@ function main() {
     if (domainFilter && !(c.domains || []).some((d) => d.includes(domainFilter))) return false
     if (roleFilter && !(c.roles || []).some((r) => r.includes(roleFilter)) &&
         !(c.profession || '').toLowerCase().includes(roleFilter)) return false
+    if (locationFilter && !(c.location || '').toLowerCase().includes(locationFilter)) return false
     if (confFilter && (c.confidence || 'none') !== confFilter) return false
     if (sourceFilter) {
       if (sourceFilter === 'multi') {
@@ -132,6 +135,10 @@ function main() {
 
     console.log(`  ${show(c.name)} [${sourceTag}] [${c.tier}] [${c.confidence}]`)
     if (prof) console.log(`    ${show(prof)}`)
+    // Locality only. The structured street address is in the index for the
+    // operating session to read on request ("what's Jane's address?"); printing
+    // it on every hit would splash hold-back data across a routine query.
+    if (c.location) console.log(`    ${show(c.location)}`)
     if (handles) console.log(`    ${show(handles)}`)
     if (emails) console.log(`    ${show(emails)}`)
     if (c.attested?.relationship) console.log(`    relationship: ${show(c.attested.relationship)}`)

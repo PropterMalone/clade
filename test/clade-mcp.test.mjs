@@ -162,3 +162,63 @@ test('handleRpc: tools/list advertises exactly the contract three', () => {
   const names = handleRpc({ jsonrpc: '2.0', id: 4, method: 'tools/list' }).result.tools.map((t) => t.name)
   assert.deepEqual(names, ['search_contacts', 'get_contact', 'contact_stats'])
 })
+
+// --- address hold-back (ADR-10) ------------------------------------------------
+// get_contact serializes the WHOLE unified entry, so a new field reaches the
+// seam with no code change. `location` is meant to; `addresses` must never. This
+// test is the mechanical guard — the rule alone would not survive the next
+// person who adds a field.
+
+const ADDRESSED_INDEX = [
+  {
+    id: 'h1',
+    name: 'Jane Wilson',
+    keys: ['vcard:jane-wilson'],
+    sources: ['vcard'],
+    emails: ['jane@example.com'],
+    profession: 'Nurse Practitioner',
+    employer: 'Evanston Health',
+    location: 'Evanston, IL',
+    addresses: [{ type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
+    domains: ['nursing'],
+    labels: [],
+    tier: 'vcard-only',
+    confidence: 'high',
+    attested: null,
+  },
+]
+
+const SECRETS = ['1400 Sherman Ave', '60201', 'addresses']
+
+test('no MCP surface leaks a street address', () => {
+  const surfaces = {
+    brief: brief(ADDRESSED_INDEX[0]),
+    get_contact: callTool('get_contact', { name: 'Jane Wilson' }, ADDRESSED_INDEX),
+    search_contacts: callTool('search_contacts', { query: 'nurse' }, ADDRESSED_INDEX),
+    search_by_location: callTool('search_contacts', { query: 'evanston' }, ADDRESSED_INDEX),
+  }
+  for (const [surface, out] of Object.entries(surfaces))
+    for (const secret of SECRETS)
+      assert.ok(!out.includes(secret), `${surface} leaked hold-back address data: ${secret}`)
+})
+
+test('get_contact serves an allow-list: an unknown new field does not reach the seam', () => {
+  // The guarantee mcp-kit.md rule 6 asks for. A field added to the index
+  // upstream must not ship over the seam until someone adds it deliberately.
+  const withNewField = [{ ...ADDRESSED_INDEX[0], interactions: { lastCall: 'NDA executed, 50 min' } }]
+  const out = callTool('get_contact', { name: 'Jane Wilson' }, withNewField)
+  assert.ok(!out.includes('NDA executed'), 'a field nobody allow-listed must not serialize')
+  assert.ok(!out.includes('interactions'))
+})
+
+test('get_contact omits `unconfirmed` — a refused claim may describe another person', () => {
+  const withRefused = [{ ...ADDRESSED_INDEX[0], unconfirmed: { employer: 'Microsoft' } }]
+  const out = callTool('get_contact', { name: 'Jane Wilson' }, withRefused)
+  assert.ok(!out.includes('Microsoft'))
+})
+
+test('location IS carried by the MCP surfaces — it is the queryable grade', () => {
+  assert.match(brief(ADDRESSED_INDEX[0]), /Evanston, IL/)
+  assert.match(callTool('get_contact', { name: 'Jane Wilson' }, ADDRESSED_INDEX), /Evanston, IL/)
+  assert.match(callTool('search_contacts', { query: 'evanston' }, ADDRESSED_INDEX), /Jane Wilson/)
+})

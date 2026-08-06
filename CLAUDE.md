@@ -17,10 +17,13 @@ merging, research, and searching.
 2. The only data that leaves custody: enrichment traffic to the owner's own
    agent — web-search queries are one person per query, and the
    URL-confirmation tier may batch up to four contacts' PUBLIC-PROFILE fields
-   (name, employer, title, bio, links, handles; never attested notes, labels,
-   emails, or the owner's life history) into one session — and whatever query
-   surface the owner explicitly sets up (e.g. a claude.ai Project knowledge
-   file). Owner-private context goes only into single-contact sessions.
+   (name, employer, title, location, bio, links, handles; never street
+   addresses, attested notes, labels, emails, or the owner's life history) into
+   one session — and whatever query surface the owner explicitly sets up (e.g. a
+   claude.ai Project knowledge file). Owner-private context goes only into
+   single-contact sessions. `location` is a city/region and travels; the
+   structured street address in `addresses[]` leaves custody by no path at all
+   (ADR-10).
 3. Pseudonymous handles don't get unmasked — if someone hasn't publicly tied a
    real name to a handle, record only their public persona and expertise.
 4. This is the owner's own address book, used to help them find people they
@@ -163,10 +166,12 @@ Known export shapes (verify against the actual file — these drift):
   HTML) — names + friend dates only. Convert with
   `node scripts/convert-facebook.mjs` (reads both formats). Thin by design;
   the life-history prior and owner triage carry this source.
-- **Google Takeout**: Contacts as CSV — names, emails, phones, orgs, labels.
-  Convert with `node scripts/convert-google.mjs` (don't hand-parse: cells
-  hold " ::: "-separated multi-values, and the Labels column leaks
-  group-membership strings that must not be mistaken for emails). For Gmail
+- **Google Takeout**: Contacts as CSV — names, emails, phones, orgs, labels,
+  addresses. Convert with `node scripts/convert-google.mjs` (don't hand-parse:
+  cells hold " ::: "-separated multi-values, and the Labels column leaks
+  group-membership strings that must not be mistaken for emails). The
+  `Address 1..3 - *` column sets become `addresses[]` + a derived `location`
+  (ADR-10 — street is hold-back, locality is queryable). For Gmail
   itself, the higher-signal move is mining sent-mail headers for frequent
   correspondents; ask before building that (it's a bigger job and needs the
   mbox export).
@@ -192,8 +197,9 @@ Known export shapes (verify against the actual file — these drift):
   converter unfolds RFC-6350 line folding, tolerates Apple `itemN.` prefixes (so
   `item1.EMAIL` parses as EMAIL; pairing the `item1.X-ABLabel` custom label onto
   the value is a follow-up, not yet done), unescapes `\, \; \n`, strips
-  `mailto:`/`tel:` schemes, keeps multi-valued email/phone/url, and drops PHOTO
-  blobs. Social-profile URLs go into `urls[]` (so they can merge cross-source),
+  `mailto:`/`tel:` schemes, keeps multi-valued email/phone/url, parses `ADR`
+  into `addresses[]` + a derived `location` (ADR-10 — street is hold-back,
+  locality is queryable), and drops PHOTO blobs. Social-profile URLs go into `urls[]` (so they can merge cross-source),
   and a URL that reduces to a non-identifying segment (`facebook.com/profile.php`)
   yields no handle rather than a shared key that would glue strangers. Prefers
   the card `UID` for a stable `sourceId` and de-dups same-UID cards across merged
@@ -327,7 +333,8 @@ echo the full name-to-tag mapping back before applying — positional answers
 misalign silently otherwise. The owner's ten-second answer ("college
 roommate's wife", "cousin", "kickball league") goes into `attested.json` under
 the record's key — write it with `node scripts/attest.mjs --key <source:id>
---relationship "..." [--context "..."] [--domains "a,b"] [--real-name "..."]`
+--relationship "..." [--context "..."] [--domains "a,b"] [--real-name "..."]
+[--location "City, ST"]`
 (seam-aware; don't hand-edit the file). User-attested facts are first-class: an entry with only a
 relationship tag is a success, not a failure ("cousin" is exactly what a
 rolodex should say about someone with no web presence). Watch for pseudonymous display names — Facebook names are often "first
@@ -356,10 +363,15 @@ evidence sometimes confirms a different bucket — read the whole board.
 
 ### 5. Search
 
-`node search.mjs energy policy`, `--domain law`, `--stats`, etc. For fuzzy or
-multi-hop questions ("who do I know in Chicago healthcare?"), read the index
-yourself and answer directly — the CLI is for quick lookups, you are the real
-query engine.
+`node search.mjs energy policy`, `--domain law`, `--location chicago`,
+`--stats`, etc. For fuzzy or multi-hop questions ("who do I know in Chicago
+healthcare?"), read the index yourself and answer directly — the CLI is for
+quick lookups, you are the real query engine.
+
+Street addresses are in the index but printed by nothing (ADR-10): the CLI shows
+only `location`. When the owner asks "what's Jane's address?", read `addresses`
+off the index and answer — you are the authorized reader. Don't put one in a
+file that leaves the machine.
 
 ### 6. Quick-add — "I just met someone"
 

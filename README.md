@@ -122,7 +122,13 @@ evidenced yes/unsure/no board for you to confirm.
 
 Ask anything. The agent reads the index and answers, including the fuzzy
 multi-hop questions. There is also a CLI for quick lookups:
-`node search.mjs healthcare`, `node search.mjs --stats`.
+`node search.mjs healthcare`, `node search.mjs --location chicago`,
+`node search.mjs --stats`.
+
+Addresses come along from the sources that carry them (your vCard and Google
+Contacts exports), and they arrive at two grades: the city is searchable and
+travels with the rest of the rolodex, while the street address stays on your
+machine — no prompt, no export, no query surface ever sees it.
 
 When you meet someone new, jot them in `imports/quickadd.md` (you can edit it
 from the GitHub app on your phone right after a meeting) and later say

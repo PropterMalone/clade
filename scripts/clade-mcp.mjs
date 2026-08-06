@@ -38,13 +38,14 @@ const TOOLS = [
   {
     name: 'search_contacts',
     description:
-      "Search the owner's personal contact index — people they already know, drawn from their own platform exports and enriched with public web research. Query words are AND-ed substring matches across name, employer, profession, bio, notes, expertise domains, handles, and how the owner knows the person. Use for questions like 'who do I know in energy law' or 'who works at the FTC'. Returns bounded summaries; follow up with get_contact for one person's full record.",
+      "Search the owner's personal contact index — people they already know, drawn from their own platform exports and enriched with public web research. Query words are AND-ed substring matches across name, employer, profession, location, bio, notes, expertise domains, handles, and how the owner knows the person. Use for questions like 'who do I know in energy law', 'who works at the FTC', or 'who do I know in Chicago'. Returns bounded summaries; follow up with get_contact for one person's full record.",
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Free-text words (AND-ed substrings). Optional if domain or employer is given.' },
+        query: { type: 'string', description: 'Free-text words (AND-ed substrings). Optional if domain, employer, or location is given.' },
         domain: { type: 'string', description: 'Expertise-tag substring, e.g. "energy", "law"' },
         employer: { type: 'string', description: 'Employer substring' },
+        location: { type: 'string', description: 'City/region substring, e.g. "chicago". Matches the contact\'s locality, not a street address.' },
         limit: { type: 'number', description: `Max results (default ${DEFAULT_LIMIT}, capped at ${MAX_LIMIT})` },
       },
     },
@@ -92,12 +93,37 @@ export function cleanRecord(value) {
   return value
 }
 
-const record = (c) => JSON.stringify(cleanRecord(c), null, 2)
+// The fields get_contact may serialize — an ALLOW-list, which is what
+// docs/mcp-kit.md rule 6 requires of any server on this contract. Until 2026-08-06
+// this function serialized the whole entry, so every field added upstream reached
+// the seam with no decision here: `addresses` (ADR-10) would have shipped street
+// addresses to any consuming session on the next rebuild. The asymmetry is what
+// settles it — an allow-list that misses a new field fails VISIBLY (someone
+// notices it absent), a blanket dump that includes one fails silently and
+// irreversibly. Adding a field to the index is therefore a deliberate step here.
+//
+// Two deliberate omissions: `addresses` (hold-back, ADR-10) and `unconfirmed`
+// (web claims the fold REFUSED — they may describe a different person entirely,
+// which is why `search.mjs` and `export-knowledge.mjs` skip them too; surfacing
+// them to a consuming agent re-creates the bug the precedence rule prevents).
+const SHAREABLE_FIELDS = [
+  'id', 'name', 'nameSource', 'keys', 'sources', 'dids', 'edge',
+  'emails', 'phones', 'handles', 'urls', 'linkedinUrl',
+  'profession', 'employer', 'location', 'domains', 'roles', 'labels',
+  'bio', 'notes', 'connectedOn', 'tier', 'confidence', 'attested', 'enrichment',
+]
+
+const record = (c) => {
+  const shareable = {}
+  for (const f of SHAREABLE_FIELDS) if (f in c) shareable[f] = c[f]
+  return JSON.stringify(cleanRecord(shareable), null, 2)
+}
 
 export function brief(c) {
   const parts = [show(c.name)]
   const prof = [c.profession, c.employer].filter(Boolean).join(' @ ')
   if (prof) parts.push(show(prof))
+  if (c.location) parts.push(show(c.location))
   if (c.attested?.relationship) parts.push(`relationship: ${show(c.attested.relationship)}`)
   if ((c.domains || []).length) parts.push(`expertise: ${show(c.domains.slice(0, 8).join(', '))}`)
   if ((c.labels || []).length) parts.push(`labels: ${show(c.labels.slice(0, 6).join(', '))}`)
@@ -125,13 +151,15 @@ export function callTool(name, args = {}, index = loadIndex()) {
     const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, MAX_LIMIT) : DEFAULT_LIMIT
     const domain = args.domain ? String(args.domain).toLowerCase() : null
     const employer = args.employer ? String(args.employer).toLowerCase() : null
+    const location = args.location ? String(args.location).toLowerCase() : null
     const query = String(args.query || '').toLowerCase()
-    if (!query && !domain && !employer) {
-      throw new Error('give at least one of: query, domain, employer')
+    if (!query && !domain && !employer && !location) {
+      throw new Error('give at least one of: query, domain, employer, location')
     }
     const hits = index.filter((c) => {
       if (domain && !(c.domains || []).some((d) => d.toLowerCase().includes(domain))) return false
       if (employer && !(c.employer || '').toLowerCase().includes(employer)) return false
+      if (location && !(c.location || '').toLowerCase().includes(location)) return false
       return matchesQuery(c, query)
     })
     if (hits.length === 0) return 'No matches.'

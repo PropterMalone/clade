@@ -534,3 +534,84 @@ test('an accepted enrichment keeps its narrative in notes as before', () => {
   assert.match(folded.notes, /confirmed via firm bio/)
   assert.equal(folded.unconfirmed, null)
 })
+
+// --- location + addresses (ADR-10) ---------------------------------------------
+
+const ADDR_EV = { type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }
+const ADDR_CHI = { type: 'work', street: '111 S Wacker Dr', city: 'Chicago', region: 'IL', postal: '60606' }
+
+test('fold unions addresses across a merged person and dedupes identical ones', () => {
+  const folded = foldGroup(
+    [
+      rec('vcard:a', 'Jane Wilson', { addresses: [ADDR_EV], location: 'Evanston, IL' }),
+      rec('google-contacts:b', 'Jane Wilson', { addresses: [{ ...ADDR_EV }, ADDR_CHI], location: 'Evanston, IL' }),
+    ],
+    {},
+  )
+  assert.deepEqual(folded.addresses, [ADDR_EV, ADDR_CHI])
+})
+
+test('fold: a group with no addresses gets an empty array, never undefined', () => {
+  const folded = foldGroup([rec('linkedin:a', 'Jane Wilson')], {})
+  assert.deepEqual(folded.addresses, [])
+  assert.equal(folded.location, '')
+})
+
+// Only the address-book sources carry a location at all, and FIELD_SOURCE_RANK
+// draws no line between vcard and google-contacts (both are the owner's own
+// address book — there is no principled winner). The ordering that IS real: a
+// quick-added `manual` record is the owner typing it today, over an export
+// frozen whenever the card was last edited.
+test('fold prefers a manual (quick-add) location over an address-book export', () => {
+  const folded = foldGroup(
+    [
+      rec('google-contacts:g', 'Sam Roe', { location: 'Wichita, KS' }),
+      rec('manual:m', 'Sam Roe', { location: 'Evanston, IL' }),
+    ],
+    {},
+  )
+  assert.equal(folded.location, 'Evanston, IL')
+  assert.deepEqual(folded.unconfirmed, null, 'two first-party values are not a web claim to audit')
+})
+
+test('"Greater Chicago Area" corroborates "Chicago, IL" — metro phrasing is not a conflict', () => {
+  const folded = foldGroup([rec('google-contacts:m', 'Dana Fox', { location: 'Chicago, IL' })], {
+    enrichments: { 'google-contacts:m': { location: 'Greater Chicago Area', confidence: 'medium' } },
+  })
+  assert.equal(folded.location, 'Greater Chicago Area')
+  assert.equal(folded.unconfirmed, null)
+})
+
+test('a medium-confidence web location does NOT overwrite a conflicting first-party one', () => {
+  const folded = foldGroup([rec('google-contacts:c', 'Dana Fox', { location: 'Evanston, IL' })], {
+    enrichments: { 'google-contacts:c': { location: 'Austin, TX', confidence: 'medium' } },
+  })
+  assert.equal(folded.location, 'Evanston, IL')
+  assert.equal(folded.unconfirmed.location, 'Austin, TX', 'the refused claim stays auditable')
+})
+
+test('a high-confidence web location wins, and fills an empty one at any confidence', () => {
+  const high = foldGroup([rec('google-contacts:h', 'Dana Fox', { location: 'Evanston, IL' })], {
+    enrichments: { 'google-contacts:h': { location: 'Austin, TX', confidence: 'high' } },
+  })
+  assert.equal(high.location, 'Austin, TX')
+  const empty = foldGroup([rec('linkedin:e', 'Dana Fox')], {
+    enrichments: { 'linkedin:e': { location: 'Austin, TX', confidence: 'low' } },
+  })
+  assert.equal(empty.location, 'Austin, TX')
+})
+
+test('an attested location outranks both the export and the web', () => {
+  const folded = foldGroup([rec('google-contacts:at', 'Dana Fox', { location: 'Evanston, IL' })], {
+    enrichments: { 'google-contacts:at': { location: 'Austin, TX', confidence: 'high' } },
+    attested: { 'google-contacts:at': { location: 'Oak Park, IL' } },
+  })
+  assert.equal(folded.location, 'Oak Park, IL')
+})
+
+test('a rejected web location is NOT written into the searchable notes field', () => {
+  const folded = foldGroup([rec('google-contacts:n', 'Dana Fox', { location: 'Evanston, IL' })], {
+    enrichments: { 'google-contacts:n': { location: 'Austin, TX', confidence: 'medium' } },
+  })
+  assert.doesNotMatch(folded.notes, /Austin/)
+})

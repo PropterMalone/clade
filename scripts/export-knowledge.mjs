@@ -52,6 +52,11 @@ function main() {
     const parts = []
     const prof = [c.profession, c.employer].filter(Boolean).join(' at ')
     if (prof) parts.push(prof)
+    // Locality, never the street address (ADR-10): this file is uploaded to a
+    // claude.ai Project, so everything here leaves the machine. "Who do I know
+    // in Chicago?" is one of the main questions the Project surface exists to
+    // answer, and it needs the city.
+    if (c.location) parts.push(`location: ${c.location}`)
     if (c.attested?.relationship) parts.push(`relationship: ${c.attested.relationship}`)
     if (c.attested?.context) parts.push(c.attested.context)
     if ((c.domains || []).length) parts.push(`expertise: ${c.domains.join(', ')}`)

@@ -432,3 +432,49 @@ test('foldUnit: keys align to contacts, banked results suppress fuzzy limitHit, 
   assert.equal(solo.banked, 1)
   assert.equal(solo.outcomes[0].key, 'facebook:jo')
 })
+
+// --- location (ADR-10) ---------------------------------------------------------
+// `location` is the shareable grade of address and rides in BOTH tiers — it is
+// the strongest common-name discriminator after employer, which the prompts
+// already ask for. The structured street address is hold-back and must never
+// reach any prompt, in either tier.
+
+const ADDRESSED = {
+  name: 'Jane Wilson',
+  employer: 'Acme',
+  location: 'Evanston, IL',
+  linkedinUrl: 'https://linkedin.com/in/jw',
+  urls: ['https://linkedin.com/in/jw'],
+  addresses: [{ type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
+}
+
+test('location reaches both the solo and the shared confirm prompt', () => {
+  assert.match(buildPrompt(ADDRESSED), /Evanston, IL/)
+  assert.match(buildConfirmBatchPrompt([ADDRESSED]), /Evanston, IL/)
+})
+
+test('the street address never reaches a prompt, in either tier', () => {
+  for (const [tier, prompt] of [['solo', buildPrompt(ADDRESSED)], ['confirm', buildConfirmBatchPrompt([ADDRESSED])]])
+    for (const secret of ['1400 Sherman Ave', '60201'])
+      assert.ok(!prompt.includes(secret), `${tier} prompt leaked a hold-back address component: ${secret}`)
+})
+
+test('both prompts ask the agent for a location field', () => {
+  assert.match(buildPrompt(ADDRESSED), /"?location"?/)
+  assert.match(buildConfirmBatchPrompt([ADDRESSED]), /"location"/)
+})
+
+test('validateEnrichment keeps location, caps it, and drops non-answer placeholders', () => {
+  assert.equal(validateEnrichment({ location: 'Evanston, IL', confidence: 'high' }).location, 'Evanston, IL')
+  assert.equal(validateEnrichment({ location: 'unknown', confidence: 'low' }).location, '')
+  assert.equal(validateEnrichment({ confidence: 'high' }).location, '')
+  assert.ok(validateEnrichment({ location: 'x'.repeat(500), confidence: 'high' }).location.length <= 160)
+})
+
+test('validateEnrichmentBatch keeps per-contact location', () => {
+  const out = validateEnrichmentBatch(
+    [{ n: 1, confidence: 'high', location: 'Chicago, IL', linkedinUrl: 'https://linkedin.com/in/person-1' }],
+    confirmContacts(1),
+  )
+  assert.equal(out[0]?.location, 'Chicago, IL')
+})

@@ -28,6 +28,18 @@ whatever raw export landed in `imports/`. Shape:
       "handles": {},
       "bio": "",
       "labels": [],
+      "addresses": [
+        {
+          "type": "home",
+          "street": "1400 Sherman Ave",
+          "extended": "Apt 4",
+          "city": "Evanston",
+          "region": "IL",
+          "postal": "60201",
+          "country": "USA"
+        }
+      ],
+      "location": "Evanston, IL",
       "connectedOn": "2019-10-04",
       "notes": ""
     }
@@ -53,6 +65,17 @@ Rules:
 - `schemaVersion` (top-level, integer, currently `1`): stamped by the converters
   so a future migrator can detect and upgrade older data (§5.6). Readers key on
   `records`, so it's a non-breaking sibling.
+- `addresses` / `location` (optional, **two grades of one fact — see ADR-10**):
+  `addresses[]` is the structured street address, **hold-back** — it reaches no
+  prompt, no export, and no MCP result. `location` is a city/region string and is
+  the shareable, searchable grade; it travels wherever `employer` does. Every
+  component of an address is optional and empties are omitted; `formatted` holds
+  a source-supplied one-line form when there is one. Sources that carry an
+  address populate BOTH fields, via `buildAddress()` + `deriveLocation()` in
+  `scripts/lib/ingest.mjs` — `location` requires a city (a bare "IL" or "USA" is
+  not a place a person can be found), and prefers the region over the country as
+  the qualifier. `location` is also produced by sources with no street address
+  behind it at all: enrichment, `attested.json`, and quick-add.
 - `connectedOn` (ISO date, when known) matters more than it looks: friend/connect
   dates cluster by life era and drive triage ordering and enrichment context.
 - Preserve source richness in `bio` / `notes` rather than dropping it.
@@ -91,6 +114,7 @@ too, so a hand-written fallback batch works either way:
       "realName": "Jane Wilson",
       "profession": "Strategy consultant",
       "employer": "Deloitte",
+      "location": "Evanston, IL",
       "expertise": ["healthcare strategy", "m&a"],
       "linkedinUrl": "https://www.linkedin.com/in/janewilson",
       "confidence": "high",
@@ -117,7 +141,8 @@ tolerate a bare map, so a hand-written triage edit works either way:
   "entries": {
     "facebook:jennifer-wilson-2009": {
       "relationship": "college roommate's wife",
-      "context": "Met at Northwestern ~2008; lives in Chicago",
+      "context": "Met at Northwestern ~2008",
+      "location": "Chicago, IL",
       "domains": ["nursing"],
       "realName": ""
     }
@@ -127,7 +152,10 @@ tolerate a bare map, so a hand-written triage edit works either way:
 
 All fields optional. `relationship` and `context` are free text; `domains` fold
 into the entry's searchable tags. `realName` here is a hold-back bridge — it
-overrides the display name locally but never networks (§5.2).
+overrides the display name locally but never networks (§5.2). `location` is a
+city/region the owner supplied ("they live in Chicago") and outranks both the
+export and web research; write it with `attest.mjs --location`, and keep it a
+locality — street addresses come from address-book ingest, not triage.
 
 ### `contacts/merge-decisions.json` — human rulings on ambiguous merges
 
@@ -168,6 +196,8 @@ Array of person entries:
   "linkedinUrl": "https://www.linkedin.com/in/janewilson",
   "profession": "Strategy consultant",
   "employer": "Deloitte",
+  "location": "Evanston, IL",
+  "addresses": [{ "type": "home", "street": "1400 Sherman Ave", "city": "Evanston", "region": "IL", "postal": "60201" }],
   "domains": ["healthcare strategy", "m&a"],
   "roles": ["senior manager, strategy"],
   "labels": [],
@@ -200,7 +230,17 @@ Array of person entries:
   "Ford Motor Company" and "Acme Company" DISAGREE. Comparison fails closed: a
   value that tokenizes to nothing (a non-Latin employer) counts as disagreement,
   keeping first-party data. See ADR-09.
-- `unconfirmed`: `{ employer?, profession?, notes? }` or `null` — web claims the
+- `location` / `addresses`: the two grades of the same fact (ADR-10).
+  `location` folds by the same precedence rule as `employer` — an attested value
+  outranks everything, then the owner's export, then a corroborated or
+  high-confidence web value; a refused one goes to `unconfirmed.location`.
+  `addresses` is the union of every merged record's structured addresses, deduped
+  on the geographic components, and is **hold-back**: `export-knowledge.mjs`
+  never writes it, `clade-mcp.mjs` omits it from its serialization allow-list
+  (`SHAREABLE_FIELDS`), the enrichment prompts never carry it, and `search.mjs`
+  prints only `location`. It is in the index so the operating session can answer
+  "what's Jane's address?" — that is the one authorized reader.
+- `unconfirmed`: `{ employer?, profession?, location?, notes? }` or `null` — web claims the
   fold REFUSED, retained for audit. Deliberately **not** indexed by `search.mjs`
   and not exported to the Project knowledge file: a refused claim may describe a
   different person entirely, so surfacing it would re-create the bug the
@@ -241,9 +281,16 @@ private-data lexicon actually requires.
      (§5.2), not shareable — despite living in the "public" layer.
 
    Public-persona (networkable) is a **whitelist**: `did` / `handles` / `urls` /
-   `bio` and subject-self-published records. Everything else — emails, phones,
-   `notes`, any `realName`, relationship/context — is hold-back until a per-field
-   ruling says otherwise.
+   `bio` / `location` and subject-self-published records. Everything else —
+   emails, phones, `addresses`, `notes`, any `realName`, relationship/context —
+   is hold-back until a per-field ruling says otherwise.
+
+   `location` and `addresses` are the worked example of why the boundary is
+   per-field rather than per-file: they are the same fact at two grades, from the
+   same record, in the same source file (ADR-10). The coarse one is on the
+   whitelist; the street-level one is not, and `clade-mcp.mjs` enforces that with
+   a `SHAREABLE_FIELDS` allow-list pinned by a leak test — a whole-entry
+   serializer is exactly where a per-field rule dies if nothing checks it.
 
 2. **The `realName` bridge is hold-back — in every file it appears.** `realName`
    in BOTH `attested.json` (owner-recalled) and `enrichments/*.json`

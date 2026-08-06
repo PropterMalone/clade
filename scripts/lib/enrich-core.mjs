@@ -85,6 +85,12 @@ export function contactBlock(c, { confirm = false } = {}) {
   const lines = [`- name: ${clean(c.name, 120)}${social ? ' (social display name — may be partial or pseudonymous, not necessarily a legal name)' : ''}`]
   if (c.employer) lines.push(`- employer (from source data): ${clean(c.employer, 160)}`)
   if (c.profession) lines.push(`- title: ${clean(c.profession, 160)}`)
+  // Locality is public-profile grade and belongs ABOVE the confirm cutoff: it is
+  // the strongest common-name discriminator after employer, and the prompts
+  // already instruct the agent to corroborate on city. The structured street
+  // address (`c.addresses`) is hold-back and is deliberately absent from this
+  // function in BOTH tiers — see ADR-10.
+  if (c.location) lines.push(`- location: ${clean(c.location, 160)}`)
   if (c.bio) lines.push(`- bio: ${JSON.stringify(clean(c.bio, 400))}`)
   // The linkedinUrl gets its own line, always: the confirm tier's prompt and
   // identity cross-check both assume it is present in the block, and the
@@ -126,7 +132,7 @@ ETHICAL CONSTRAINT (mandatory): if this contact is only known by a pseudonymous 
 
 ${c.linkedinUrl ? 'The data block already includes a LinkedIn URL. Treat it as an IDENTITY ANCHOR — the thing that tells you which person this is — not as a page you must load. Confirm the identity behind it by whichever route your tooling supports: fetching the URL, or searching for the person named in it. Budget 1-2 lookups, at most one extra if something conflicts. NOTE: linkedin.com returns HTTP 999 to many automated fetchers (it keys off the user agent), so a direct fetch may fail through no fault of yours. That is expected, not a dead end: fall back to searching the profile slug and the contact\'s name/employer. Only answer "unidentified" if the SEARCH also fails — never merely because the fetch was blocked.' : 'Use up to 5 web searches/fetches.'} Prefer the person's own pages (LinkedIn, personal site, employer bio) as primary sources, and STOP as soon as you have corroboration — every search past that point spends the owner's quota for nothing.
 
-Output ONLY a single fenced \`\`\`json block (nothing after it) with keys: realName ("" if unconfirmed), profession, employer, expertise (array of lowercase tags), linkedinUrl ("" if none), confidence ("high"|"medium"|"low"|"unidentified"), notes (1-2 sentences: finding + key source).`
+Output ONLY a single fenced \`\`\`json block (nothing after it) with keys: realName ("" if unconfirmed), profession, employer, location (city/region you corroborated against, e.g. "Chicago, IL" — "" if none; a city or metro only, never a street address), expertise (array of lowercase tags), linkedinUrl ("" if none), confidence ("high"|"medium"|"low"|"unidentified"), notes (1-2 sentences: finding + key source).`
 }
 
 // --- response validation ------------------------------------------------------
@@ -189,6 +195,10 @@ export function validateEnrichment(parsed) {
     realName: dropNonAnswer(str(parsed.realName, 120)),
     profession: dropNonAnswer(str(parsed.profession, 160)),
     employer: dropNonAnswer(str(parsed.employer, 160)),
+    // The locality the research corroborated against. Coarse by construction —
+    // the prompt asks for a city/region, and ADR-10 keeps street addresses out
+    // of the enrichment path entirely, in both directions.
+    location: dropNonAnswer(str(parsed.location, 160)),
     expertise: expertiseRaw
       .filter((t) => typeof t === 'string')
       .map((t) => clean(t, 40).trim().toLowerCase())
@@ -268,7 +278,7 @@ Falling back to search does NOT lower the bar for a match: common names need cor
 ETHICAL CONSTRAINT (mandatory): if a contact is only known by a pseudonymous handle, do NOT unmask a legal name the person hasn't publicly tied to that handle — capture only the public persona + expertise. Named address-book contacts are fine to research normally.
 
 Output ONLY a single fenced \`\`\`json block (nothing after it): an array with one entry per contact, e.g.
-[{"n": 1, "realName": "", "profession": "", "employer": "", "expertise": ["lowercase","tags"], "linkedinUrl": "<REQUIRED: that contact's own linkedin line from its data block, echoed exactly>", "confidence": "high"|"medium"|"low"|"unidentified", "notes": "1-2 sentences: finding + key source"}, ...]
+[{"n": 1, "realName": "", "profession": "", "employer": "", "location": "city/region you corroborated against, e.g. \\"Chicago, IL\\" — \\"\\" if none; a city or metro only, never a street address", "expertise": ["lowercase","tags"], "linkedinUrl": "<REQUIRED: that contact's own linkedin line from its data block, echoed exactly>", "confidence": "high"|"medium"|"low"|"unidentified", "notes": "1-2 sentences: finding + key source"}, ...]
 
 Each entry's "linkedinUrl" MUST be the LinkedIn URL from that contact's own data block — it is the identity check binding your entry to the right person; an entry whose URL doesn't match its contact is discarded.`
 }
