@@ -164,8 +164,8 @@ test('handleRpc: tools/list advertises exactly the contract three', () => {
 })
 
 // --- address hold-back (ADR-10) ------------------------------------------------
-// get_contact serializes the WHOLE unified entry, so a new field reaches the
-// seam with no code change. `location` is meant to; `addresses` must never. This
+// get_contact USED TO serialize the whole unified entry, so a new field reached
+// the seam with no code change. `location` is meant to; `addresses` must never. This
 // test is the mechanical guard — the rule alone would not survive the next
 // person who adds a field.
 
@@ -215,6 +215,43 @@ test('get_contact omits `unconfirmed` — a refused claim may describe another p
   const withRefused = [{ ...ADDRESSED_INDEX[0], unconfirmed: { employer: 'Microsoft' } }]
   const out = callTool('get_contact', { name: 'Jane Wilson' }, withRefused)
   assert.ok(!out.includes('Microsoft'))
+})
+
+// The allow-list is depth-1; these two served objects carry keys that must not
+// cross the seam, so both are projected (review 2026-08-06).
+test('get_contact never serves attested.realName — the pseudonym bridge', () => {
+  const bridged = [{
+    ...ADDRESSED_INDEX[0],
+    name: 'jaydub',
+    handles: { bluesky: 'jaydub.bsky.social' },
+    attested: { relationship: 'cousin', context: 'kickball league', realName: 'Jane Wilson Emerson' },
+  }]
+  const out = callTool('get_contact', { name: 'jaydub' }, bridged)
+  assert.ok(!out.includes('Jane Wilson Emerson'), 'a real name must never be served beside the handle it unmasks')
+  assert.ok(!out.includes('realName'))
+  assert.match(out, /cousin/, 'the rest of the attested entry still serves')
+  assert.match(out, /kickball league/)
+})
+
+test('get_contact withholds the enrichment narrative when a claim was refused', () => {
+  const refused = [{
+    ...ADDRESSED_INDEX[0],
+    unconfirmed: { employer: 'Microsoft' },
+    enrichment: { confidence: 'medium', enrichedAt: '2026-08-01T00:00:00Z', notes: 'Found a Jane Wilson at Microsoft in Wichita — same name, likely her.' },
+  }]
+  const out = callTool('get_contact', { name: 'Jane Wilson' }, refused)
+  assert.ok(!out.includes('Microsoft'), 'the narrative argues for the claim `unconfirmed` exists to withhold')
+  assert.ok(!out.includes('Wichita'))
+  assert.match(out, /"confidence": "medium"/, 'provenance still serves')
+})
+
+test('an accepted enrichment keeps its narrative on the seam', () => {
+  const accepted = [{
+    ...ADDRESSED_INDEX[0],
+    unconfirmed: null,
+    enrichment: { confidence: 'high', enrichedAt: '2026-08-01T00:00:00Z', notes: 'Confirmed via the practice bio page.' },
+  }]
+  assert.match(callTool('get_contact', { name: 'Jane Wilson' }, accepted), /practice bio page/)
 })
 
 test('location IS carried by the MCP surfaces — it is the queryable grade', () => {

@@ -502,3 +502,22 @@ test('blueskyRecords: an actor with no DID is skipped with a warning', async () 
   assert.equal(records.length, 1)
   assert.ok(warnings.some((w) => /no DID/.test(w)))
 })
+
+test('deriveLocation prefers a non-work address, so export order does not decide', async () => {
+  const { deriveLocation } = await import('../scripts/lib/ingest.mjs')
+  // A vCard listing WORK first must still file the person under where they live.
+  assert.equal(
+    deriveLocation([{ type: 'work', city: 'Chicago', region: 'IL' }, { type: 'home', city: 'Evanston', region: 'IL' }]),
+    'Evanston, IL',
+  )
+  // Work-only still yields a locality — it is the fallback, not a veto.
+  assert.equal(deriveLocation([{ type: 'work', city: 'Chicago', region: 'IL' }]), 'Chicago, IL')
+  assert.equal(deriveLocation([]), '')
+})
+
+test('googleContactsRecords warns rather than silently dropping an Address 4 block', async () => {
+  const { googleContactsRecords } = await import('../scripts/lib/ingest.mjs')
+  const header = 'First Name,Last Name,E-mail 1 - Value,Address 1 - City,Address 4 - City'
+  const { warnings } = googleContactsRecords(`${header}\nSam,Whitfield,sam@x.edu,Evanston,Wichita`)
+  assert.ok(warnings.some((w) => /Address 4\+/.test(w)), 'a dropped export column must be reported')
+})

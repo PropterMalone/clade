@@ -448,9 +448,30 @@ const ADDRESSED = {
   addresses: [{ type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
 }
 
-test('location reaches both the solo and the shared confirm prompt', () => {
-  assert.match(buildPrompt(ADDRESSED), /Evanston, IL/)
-  assert.match(buildConfirmBatchPrompt([ADDRESSED]), /Evanston, IL/)
+// ADR-08: owner-attested and address-book-derived facts may NOT share a batched
+// session. `location` has three origins and only `enrichment` is public-web, so
+// the shared confirm block is gated on origin — not on the field name.
+test('an owner-custody location reaches the solo prompt but NOT a shared confirm block', () => {
+  const owned = { ...ADDRESSED, locationSource: 'raw-address' }
+  assert.match(buildPrompt(owned), /Evanston, IL/)
+  assert.ok(!buildConfirmBatchPrompt([owned]).includes('Evanston, IL'), 'address-book locality must not enter a 4-contact session')
+
+  const attested = { ...ADDRESSED, locationSource: 'attested' }
+  assert.ok(!buildConfirmBatchPrompt([attested]).includes('Evanston, IL'), 'attested locality must not enter a 4-contact session')
+})
+
+test('a web-derived location DOES reach the shared confirm block — it is already public', () => {
+  const researched = { ...ADDRESSED, locationSource: 'enrichment' }
+  assert.match(buildConfirmBatchPrompt([researched]), /Evanston, IL/)
+  assert.match(buildPrompt(researched), /Evanston, IL/)
+})
+
+test('an owner-custody location is labelled as the owner\'s own possibly-stale record', () => {
+  assert.match(buildPrompt({ ...ADDRESSED, locationSource: 'raw-address' }), /location \(from the owner's own records, may be stale\)/)
+})
+
+test('the confirm block still carries its LinkedIn identity anchor', () => {
+  assert.match(buildConfirmBatchPrompt([{ ...ADDRESSED, locationSource: 'raw-address' }]), /linkedin\.com\/in\/jw/)
 })
 
 test('the street address never reaches a prompt, in either tier', () => {
@@ -459,9 +480,17 @@ test('the street address never reaches a prompt, in either tier', () => {
       assert.ok(!prompt.includes(secret), `${tier} prompt leaked a hold-back address component: ${secret}`)
 })
 
-test('both prompts ask the agent for a location field', () => {
-  assert.match(buildPrompt(ADDRESSED), /"?location"?/)
-  assert.match(buildConfirmBatchPrompt([ADDRESSED]), /"location"/)
+// Anchored to the output-schema clause, NOT a bare /location/ — the loose regex
+// matched the fixture's own echoed data line, so deleting the schema instruction
+// left the test green (mutation-verified by review 2026-08-06).
+test('both prompts ask the agent to RESEARCH a location, not echo one', () => {
+  const solo = buildPrompt(ADDRESSED)
+  assert.match(solo, /location \(the city or metro this person is CURRENTLY based in/)
+  assert.match(solo, /city or metro they are currently based in/, 'and it is in the research task list, not only the output schema')
+  assert.match(solo, /do not echo it back/)
+  const confirm = buildConfirmBatchPrompt([ADDRESSED])
+  assert.match(confirm, /"location": "<city or metro only/)
+  assert.match(confirm, /current city or metro/)
 })
 
 test('validateEnrichment keeps location, caps it, and drops non-answer placeholders', () => {
@@ -470,6 +499,30 @@ test('validateEnrichment keeps location, caps it, and drops non-answer placehold
   assert.equal(validateEnrichment({ confidence: 'high' }).location, '')
   assert.ok(validateEnrichment({ location: 'x'.repeat(500), confidence: 'high' }).location.length <= 160)
 })
+
+// ADR-10 claims `location` is coarse BY CONSTRUCTION and therefore safe to
+// export, serve over MCP, and batch into a shared session. A model cannot be
+// trusted to honour that from a prompt sentence alone — least of all a
+// third-party one behind CLADE_AGENT_CMD.
+for (const street of [
+  '1400 Sherman Ave, Evanston, IL 60201',
+  '111 S Wacker Dr',
+  'Apt 4, Evanston, IL',
+  'Evanston, IL 60201',
+  'PO Box 12, Evanston, IL',
+  '1400 Sherman Ave Suite 900',
+]) {
+  test(`a street-shaped location is refused: ${JSON.stringify(street)}`, () => {
+    assert.equal(validateEnrichment({ location: street, confidence: 'high' }).location, '')
+  })
+}
+
+// Fail-closed must not eat real cities that merely LOOK street-ish.
+for (const city of ['St. Louis, MO', 'Lake Placid, NY', 'Evanston, IL', 'Greater Chicago Area', 'Bristol, United Kingdom', 'Kansas City, MO']) {
+  test(`a real locality is kept: ${JSON.stringify(city)}`, () => {
+    assert.equal(validateEnrichment({ location: city, confidence: 'high' }).location, city)
+  })
+}
 
 test('validateEnrichmentBatch keeps per-contact location', () => {
   const out = validateEnrichmentBatch(

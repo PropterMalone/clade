@@ -268,8 +268,16 @@ export function buildAddress(parts) {
 // location filter useless. Region is preferred over country as the qualifier
 // ("Evanston, IL"); country carries it for addresses with no region ("Bristol,
 // United Kingdom").
+//
+// A WORK-typed address loses to any other. Taking the array's first city made
+// export order decide whether someone was filed under their home or their office
+// — vCards list ADR;type=WORK first about as often as not — and that value then
+// outranks web research in the fold, so a wrong export-derived city refuses a
+// correct researched one. Preferring non-work is also the lower-disclosure
+// default when only a work address exists: it still yields one, just last.
 export const deriveLocation = (addresses) => {
-  const a = (addresses || []).find((x) => x.city)
+  const withCity = (addresses || []).filter((x) => x?.city)
+  const a = withCity.find((x) => x.type !== 'work') || withCity[0]
   return a ? [a.city, a.region || a.country].filter(Boolean).join(', ') : ''
 }
 
@@ -322,9 +330,12 @@ export function googleContactsRecords(csvText) {
       .map((l) => l.replace(/^\* /, ''))
       .filter((l) => !['myContacts', 'starred'].includes(l)) // system groups carry no signal
 
-    // Google numbers address blocks the way it numbers emails and phones. Three
-    // covers home/work/other; a fourth is vanishingly rare and costs a whole
-    // column set, so read what the header actually offers and stop.
+    // Google numbers address blocks the way it numbers emails and phones, and
+    // this is CAPPED AT 3 exactly like the email (3) and phone (4) loops above —
+    // it does not read what the header offers. A 4th block would be dropped, so
+    // say so out loud rather than silently discarding what the owner's export
+    // carried (ADR-09's fidelity rule); the warning below is the honest version
+    // of a comment that used to claim header-driven reading.
     const addresses = []
     for (let n = 1; n <= 3; n++) {
       const addr = buildAddress({
@@ -340,6 +351,8 @@ export function googleContactsRecords(csvText) {
       })
       if (addr) addresses.push(addr)
     }
+    if (headers.some((h) => /^Address [4-9] - /.test(h)))
+      warnings.push(`${name || '(unnamed)'}: only the first 3 address blocks are read; an "Address 4+" column set was dropped`)
 
     records.push({
       sourceId,
@@ -509,6 +522,10 @@ function parseVcard(lines) {
         const [pobox, extended, street, city, region, postal, country] = splitVcardStructured(p.value, ';').map((s) => unescapeVcard(s).trim())
         const addr = buildAddress({
           type: (p.params.type || []).find((t) => t !== 'pref') || '',
+          // RFC 6350 §6.3.1's LABEL param is "a plain-text string representing
+          // the formatted address" — the vCard analog of Google's Formatted
+          // column, already parsed and previously discarded.
+          formatted: p.params.label ? unescapeVcard(p.params.label).trim() : '',
           pobox, extended, street, city, region, postal, country,
         })
         if (addr) c.addresses.push(addr)

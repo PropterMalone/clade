@@ -11,6 +11,8 @@
 // on every candidate comparison, so a third record can never bridge two ruled
 // groups (review C1).
 
+import { looksLikeStreetAddress } from './enrich-core.mjs'
+
 // --- normalizers ------------------------------------------------------------
 
 // Returns null for values that aren't plausibly an email — converters have
@@ -415,12 +417,43 @@ const TITLE_STOPWORDS = new Set([
 
 // Localities collide on metro-area phrasing: LinkedIn writes "Greater Chicago
 // Area" where an address book writes "Chicago, IL", and those are the same
-// place. State/country qualifiers are NOT stopwords — "Portland, OR" and
-// "Portland, ME" must stay distinguishable — so only the geography-free glue
-// words are stripped.
+// place. Only the geography-free glue words are stripped — a qualifier carries
+// real signal and must survive into `locationsConflict` below.
 const LOCATION_STOPWORDS = new Set([
   'the', 'of', 'and', 'greater', 'area', 'metro', 'metropolitan', 'region', 'county', 'city',
 ])
+
+// A locality is `City[, Qualifier]`, and the flat token-overlap test below is
+// WRONG for that shape: it calls two values corroborating on ANY shared token,
+// so "Portland, OR" agrees with "Portland, ME" (shared city) and "Evanston, IL"
+// agrees with "Chicago, IL" (shared state). Both let a low-confidence web guess
+// silently overwrite the city the owner's own address book supplied — the exact
+// ADR-09 failure this precedence machinery exists to prevent, found by review
+// 2026-08-06 with the earlier keep-qualifiers-out-of-the-stopword-list fix in
+// place, which was necessary and nowhere near sufficient.
+//
+// So locations get their own agreement test: split on the LAST comma into head
+// (the locality) and qualifier (region or country); the heads must overlap, and
+// when BOTH sides carry a qualifier the qualifiers must overlap too.
+// "Greater Chicago Area" (no qualifier) still corroborates "Chicago, IL".
+//
+// Fails CLOSED on qualifier spelling: "Wichita, KS" vs "Wichita, Kansas" reads as a
+// conflict, keeping the first-party value and filing the web one for audit. That
+// costs one refresh; the opposite error overwrites a correct address-book city
+// with a same-named stranger's, unrecoverably and with no audit trail.
+const splitLocality = (v) => {
+  const s = String(v || '').trim()
+  const i = s.lastIndexOf(',')
+  return i === -1 ? { head: s, qualifier: '' } : { head: s.slice(0, i), qualifier: s.slice(i + 1) }
+}
+
+export const locationsConflict = (a, b) => {
+  const la = splitLocality(a)
+  const lb = splitLocality(b)
+  if (valuesConflict(la.head, lb.head, LOCATION_STOPWORDS)) return true
+  if (!la.qualifier.trim() || !lb.qualifier.trim()) return false // one side unqualified: heads agreeing is enough
+  return valuesConflict(la.qualifier, lb.qualifier, LOCATION_STOPWORDS)
+}
 
 // Two values CONFLICT when they share no identity-bearing token. Fails CLOSED:
 // a value that tokenizes to nothing (a CJK employer under an ASCII tokenizer)
@@ -449,14 +482,19 @@ const valuesConflict = (a, b, stopwords) => {
 // the correct employer that was on file the whole time. An export still
 // freezes the employer at connection date, so confident research must be able to
 // refresh a stale value; only an UNcorroborated disagreement is refused.
-function preferExportOnConflict({ web, own, alternates = [], confidence, stopwords }) {
+// `conflicts` lets a field supply its own agreement test — locality strings are
+// structured (`City, Qualifier`) and the flat token-overlap default calls
+// "Portland, OR" and "Portland, ME" the same place. Defaults to the flat test so
+// employer and profession are unchanged.
+function preferExportOnConflict({ web, own, alternates = [], confidence, stopwords, conflicts }) {
+  const disagree = conflicts || ((a, b) => valuesConflict(a, b, stopwords))
   const webValue = String(web || '').trim()
   const ownValue = String(own || '').trim()
   if (!webValue) return { value: ownValue, rejected: '' }
   if (!ownValue) return { value: webValue, rejected: '' }
   if (confidence === 'high') return { value: webValue, rejected: '' }
   const firstParty = [ownValue, ...alternates.map((a) => String(a || '').trim())].filter(Boolean)
-  const corroborated = firstParty.some((v) => !valuesConflict(webValue, v, stopwords))
+  const corroborated = firstParty.some((v) => !disagree(webValue, v))
   return corroborated ? { value: webValue, rejected: '' } : { value: ownValue, rejected: webValue }
 }
 
@@ -517,24 +555,60 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   // Location folds on the same rule as employer/profession (ADR-09): the owner's
   // own export outranks an uncorroborated web guess. People move, so confident
   // research must still be able to refresh a locality frozen at connection date.
+  // Two deliberate departures from the employer rule, both from review 2026-08-06:
+  // the agreement test is locality-aware (`locationsConflict`), and an empty
+  // first-party value does NOT hand the field to any-confidence research.
   const locationPick = pickRecordField(group, 'location')
+  const webLocation = String(enrich?.location || '').trim()
   const locationChoice = preferExportOnConflict({
     web: enrich?.location,
     own: locationPick.value,
     alternates: locationPick.alternates,
     confidence: enrich?.confidence,
     stopwords: LOCATION_STOPWORDS,
+    conflicts: locationsConflict,
   })
   let location = locationChoice.value
   let rejectedLocation = locationChoice.rejected
+  let locationSource = location ? (location === webLocation ? 'enrichment' : 'raw-address') : ''
+  // An empty first-party location is the DOMINANT case, not the edge case:
+  // LinkedIn, Facebook and Bluesky all emit `location: ''` by construction, so
+  // most of a real corpus takes the empty branch. `preferExportOnConflict` hands
+  // an empty field to research at ANY confidence — right for employer (usually
+  // first-party-populated), wrong here, where it would fill the index with
+  // unvetted guesses. Thin contacts are also the ones that receive the owner's
+  // life-history prior, and the prompt bars the prior from a search QUERY but not
+  // from the ANSWER — so a low-confidence miss can mirror the owner's own era
+  // cities back onto named strangers. Require medium+ to claim an empty field.
+  if (!locationPick.value && webLocation && !['high', 'medium'].includes(enrich?.confidence)) {
+    location = ''
+    locationSource = ''
+    rejectedLocation = webLocation
+  }
   // The owner outranks both their stale export and the web — they know where
   // their own friend lives. A web claim displaced this way was still refused, so
-  // it goes to the audit trail instead of vanishing.
+  // it goes to the audit trail instead of vanishing. Assign UNCONDITIONALLY: a
+  // stale `rejected` computed against the export used to survive an attestation
+  // that agreed with the web value, so the record claimed to have refused a claim
+  // it was simultaneously reporting as authoritative.
   const attestedLocation = String(attest?.location || '').trim()
   if (attestedLocation) {
-    const webLocation = String(enrich?.location || '').trim()
-    if (webLocation && valuesConflict(webLocation, attestedLocation, LOCATION_STOPWORDS)) rejectedLocation = webLocation
+    rejectedLocation = webLocation && locationsConflict(webLocation, attestedLocation) ? webLocation : ''
     location = attestedLocation
+    locationSource = 'attested'
+  }
+  // Defense in depth, and the reason it is HERE: the index is where the
+  // shareable grade is actually constituted, while the three write-time guards
+  // (validateEnrichment, attest.mjs, deriveLocation) each cover one producer.
+  // A value banked before a guard existed — or by a producer added later —
+  // would otherwise flow straight to the export, the seam, and the prompts. The
+  // build is regenerable, so failing closed here costs nothing permanent.
+  // (foldGroup is pure and has no warnings channel; the drop is silent by
+  // design — every producer already refuses these at write time and reports it
+  // there, so reaching this line means legacy or out-of-band data.)
+  if (looksLikeStreetAddress(location)) {
+    location = ''
+    locationSource = ''
   }
 
   // Street addresses union across the merged person, deduped on the geographic
@@ -542,21 +616,34 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   // one address, even when one export labels it "home" and the other says
   // nothing. HOLD-BACK (ADR-10): this array is for the owner's own use and is
   // stripped from every egress path; `location` above is the shareable grade.
+  // `formatted` is excluded from the dedupe KEY (two copies of one address that
+  // differ only in a source-supplied one-line form are the same place) but must
+  // count for EMPTINESS — Google's People API allows a formattedValue with no
+  // structured components, and reusing the dedupe key as the empty test silently
+  // deleted those addresses between the normalized file and the index (review
+  // 2026-08-06). Emptiness is judged against every content field.
   const ADDRESS_DEDUPE_FIELDS = ['pobox', 'extended', 'street', 'city', 'region', 'postal', 'country']
+  const ADDRESS_CONTENT_FIELDS = ['formatted', ...ADDRESS_DEDUPE_FIELDS]
   const addresses = []
   const seenAddresses = new Set()
   for (const r of group) {
     for (const a of r.addresses || []) {
       if (!a || typeof a !== 'object' || Array.isArray(a)) continue
+      if (!ADDRESS_CONTENT_FIELDS.some((f) => String(a[f] ?? '').trim())) continue // type-only: no place in it
       const norm = ADDRESS_DEDUPE_FIELDS.map((f) => String(a[f] ?? '').trim().toLowerCase()).join('|')
-      if (!norm.replace(/\|/g, '')) continue // type-only object: no place in it
-      if (seenAddresses.has(norm)) continue
-      seenAddresses.add(norm)
+      if (norm.replace(/\|/g, '') && seenAddresses.has(norm)) continue
+      if (norm.replace(/\|/g, '')) seenAddresses.add(norm)
       addresses.push(a)
     }
   }
 
+  // A refused LOCATION must not blank the enrichment narrative out of `notes`:
+  // that narrative argues for a refused EMPLOYER or TITLE, which is why the
+  // suppression exists, and says nothing about a correctly-resolved job. Gating
+  // it on the location too cost search recall on contacts whose enrichment was
+  // fine (review 2026-08-06). `unconfirmed` still records every refusal.
   const rejectedAnyClaim = Boolean(employerChoice.rejected || professionChoice.rejected || rejectedLocation)
+  const rejectedNarrativeClaim = Boolean(employerChoice.rejected || professionChoice.rejected)
   // Losing FIRST-PARTY employer values stay visible in notes instead of
   // vanishing. A rejected web claim deliberately does NOT go here: `notes` feeds
   // both search.mjs's match haystack and the exported Project knowledge file, so
@@ -600,6 +687,12 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
     profession: professionChoice.value,
     employer,
     location,
+    // Origin of the winning `location`, mirroring `nameSource`. Load-bearing for
+    // egress, not decoration: ADR-08 says owner-attested facts may not share a
+    // batched enrichment session, and a location derived from a private
+    // address-book street entry is not public-web either. `contactBlock` reads
+    // this to decide whether the value may enter a shared confirm block.
+    locationSource,
     addresses,
     // Web claims this fold refused, kept for audit but deliberately NOT indexed
     // by search or exported to the Project file — they may describe a different
@@ -622,7 +715,7 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
     bio: bioPick.value || '',
     notes: uniq([
       ...group.map((r) => r.notes),
-      rejectedAnyClaim ? null : enrich?.notes,
+      rejectedNarrativeClaim ? null : enrich?.notes,
       otherEmployers.length ? `other/prior employer: ${otherEmployers.join(', ')}` : null,
     ]).join(' / '),
     connectedOn,

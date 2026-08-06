@@ -4,6 +4,7 @@
 //   node search.mjs <query>            — full-text search across all fields
 //   node search.mjs --domain <tag>     — filter by domain/expertise
 //   node search.mjs --role <role>      — filter by role/title
+//   node search.mjs --location <city>  — filter by city/region
 //   node search.mjs --confidence high  — filter by confidence (high|medium|low|attested|none)
 //   node search.mjs --source <src>     — filter by source (linkedin, facebook, ... or "multi")
 //   node search.mjs --tier <tier>      — filter by tier (multi-source, facebook-only, ...)

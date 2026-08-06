@@ -370,8 +370,11 @@ quick lookups, you are the real query engine.
 
 Street addresses are in the index but printed by nothing (ADR-10): the CLI shows
 only `location`. When the owner asks "what's Jane's address?", read `addresses`
-off the index and answer — you are the authorized reader. Don't put one in a
-file that leaves the machine.
+off the index and answer **in chat only** — never into a web-search query, a
+drafted message, a committed file, or an export. You are the authorized reader;
+a search query is the first boundary privacy rule 2 names, and the cloud
+in-session enrichment fallback is exactly where the script-level hold-back in
+`contactBlock` does not protect you.
 
 ### 6. Quick-add — "I just met someone"
 
@@ -388,7 +391,11 @@ When the owner says **"process my quick-adds"**:
    `manual`-source record (`contacts/normalized/manual.json`, `source:
    "manual"`, stable slug sourceId). Names known only by a handle are fine —
    put the handle in `handles` and leave `name` as the handle if that's all
-   there is.
+   there is. If the block names a city, set `location` ("Evanston, IL") so the
+   person is reachable by `--location` and the MCP filter; a STREET address
+   (business cards carry them) goes in `addresses[]` and **nowhere else** — not
+   `notes`, not `context`, not `location`, all three of which leave the machine
+   (ADR-10).
 2. Put the *relationship and context* — how they know this person, who
    introduced them, why they care — into `contacts/attested.json` under the
    record's key. This is first-class data (the owner is the authority on their

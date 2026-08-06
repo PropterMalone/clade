@@ -230,14 +230,25 @@ Array of person entries:
   "Ford Motor Company" and "Acme Company" DISAGREE. Comparison fails closed: a
   value that tokenizes to nothing (a non-Latin employer) counts as disagreement,
   keeping first-party data. See ADR-09.
+- `locationSource`: `raw-address` | `attested` | `enrichment` | `""` — where the
+  winning `location` came from, mirroring `nameSource`. Load-bearing, not
+  decoration: only an `enrichment` (public-web) locality may ride in a BATCHED
+  confirm-tier enrichment session, because ADR-08 forbids owner-attested facts in
+  a session shared with other contacts, and an address-book-derived city is
+  owner-custody too. `contactBlock` in `enrich-core.mjs` reads it.
 - `location` / `addresses`: the two grades of the same fact (ADR-10).
   `location` folds by the same precedence rule as `employer` — an attested value
   outranks everything, then the owner's export, then a corroborated or
-  high-confidence web value; a refused one goes to `unconfirmed.location`.
+  high-confidence web value; a refused one goes to `unconfirmed.location`. Two
+  departures, both field-specific: agreement is judged by a LOCALITY comparator
+  (split on the last comma; heads must overlap and qualifiers must not disagree,
+  so "Portland, OR" ≠ "Portland, ME" and "Evanston, IL" ≠ "Chicago, IL" — a flat
+  token test called both pairs corroborating), and an EMPTY first-party value is
+  claimed only at medium+ confidence, because empty is the dominant case here.
   `addresses` is the union of every merged record's structured addresses, deduped
   on the geographic components, and is **hold-back**: `export-knowledge.mjs`
   never writes it, `clade-mcp.mjs` omits it from its serialization allow-list
-  (`SHAREABLE_FIELDS`), the enrichment prompts never carry it, and `search.mjs`
+  (`MCP_SERVED_FIELDS`), the enrichment prompts never carry it, and `search.mjs`
   prints only `location`. It is in the index so the operating session can answer
   "what's Jane's address?" — that is the one authorized reader.
 - `unconfirmed`: `{ employer?, profession?, location?, notes? }` or `null` — web claims the
@@ -288,9 +299,16 @@ private-data lexicon actually requires.
    `location` and `addresses` are the worked example of why the boundary is
    per-field rather than per-file: they are the same fact at two grades, from the
    same record, in the same source file (ADR-10). The coarse one is on the
-   whitelist; the street-level one is not, and `clade-mcp.mjs` enforces that with
-   a `SHAREABLE_FIELDS` allow-list pinned by a leak test — a whole-entry
-   serializer is exactly where a per-field rule dies if nothing checks it.
+   whitelist; the street-level one is not.
+
+   **`MCP_SERVED_FIELDS` in `clade-mcp.mjs` is NOT this whitelist** — do not reuse
+   it to build a networked layer. It answers a different question (what the
+   owner's own assistant may read) and deliberately contains `emails`, `phones`,
+   `notes` and `attested`, four things this section calls hold-back. What it does
+   enforce is the ADR-10 address split *at the MCP seam*, pinned by a leak test —
+   a whole-entry serializer being exactly where a per-field rule dies if nothing
+   checks it. A future networked build re-derives its payload from the whitelist
+   above, per field, as §5.3 already requires of the merged index.
 
 2. **The `realName` bridge is hold-back — in every file it appears.** `realName`
    in BOTH `attested.json` (owner-recalled) and `enrichments/*.json`

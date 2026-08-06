@@ -133,7 +133,8 @@ The primary tool. All parameters optional, but at least one of `query`,
 | `limit` | number | default 15; cap it (25 is reasonable) regardless of what is asked |
 
 Returns **bounded summaries**, not full records — name, profession, employer,
-sources, confidence, attested relationship, and enough to decide who to look up.
+location, sources, confidence, attested relationship, and enough to decide who to
+look up.
 When the result set exceeds the limit, say so and return the count.
 
 Search matches across `name`, `profession`, `employer`, `location`, `bio`, `notes`,

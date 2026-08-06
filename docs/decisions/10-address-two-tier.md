@@ -13,11 +13,18 @@ commits: []
 **Decision**: Addresses enter the index as **two fields at two privacy grades**,
 never one. `addresses[]` (structured, verbatim, street-level) is hold-back: it
 reaches no prompt, no export, no MCP result, and is not printed by `search.mjs`.
-`location` (a city/region string — "Evanston, IL") is public-profile grade and
-travels wherever `employer` does, including batched confirm-tier enrichment
-sessions. The hold-back is enforced by a **field allow-list plus a test**
-(`SHAREABLE_FIELDS` in `clade-mcp.mjs`, pinned by `test/clade-mcp.test.mjs`),
-not by a documented convention.
+`location` (a city/region string — "Evanston, IL") is the queryable grade: it
+travels wherever `employer` does — search, the Project export, the MCP seam, and
+enrichment prompts. The hold-back is enforced by **field allow-lists plus leak
+tests** (`MCP_SERVED_FIELDS` in `clade-mcp.mjs`, `contactBlock` in
+`export-knowledge.mjs`, both pinned by tests), not by a documented convention.
+
+`location` carries an ORIGIN (`locationSource`: `raw-address` | `attested` |
+`enrichment`) and the origin gates one specific egress: only an `enrichment`
+(public-web) locality may enter a *batched* confirm-tier session. A city derived
+from the owner's private address book, or one the owner attested, is owner-custody
+data, and ADR-08's table forbids owner-attested facts in a shared session. Solo
+sessions carry any origin — private context is already allowed there.
 
 **Why**: An address book without addresses cannot answer either question people
 actually ask one — "where does Jane live" and "who do I know in Chicago" — and
@@ -30,13 +37,17 @@ egress paths that already exist (`export-knowledge.mjs` → a claude.ai Project,
 `clade-mcp.mjs` → any consuming session, `enrich-core.mjs` → a research backend)
 would each have carried it by default. `get_contact` in particular serialized the
 *whole* unified entry, so adding one field to the index would have leaked it over
-the seam with no code change and no decision — hazard 2 of ADR-08, in the
+the seam with no code change and no decision — ADR-08's How-to-apply §1, in the
 concrete. That also exposed a standing gap between the published contract and the
 reference server: `docs/mcp-kit.md` rule 6 already required an allow-list of
 fields, and `clade-mcp.mjs` was doing a blanket serialization. Fixed here
-(`SHAREABLE_FIELDS`), which additionally drops `unconfirmed` from the seam for
+(`MCP_SERVED_FIELDS`), which additionally drops `unconfirmed` from the seam for
 the same reason `search.mjs` and `export-knowledge.mjs` already skip it: a
-refused web claim may describe a different person.
+refused web claim may describe a different person. The allow-list is also
+DEPTH-1, so `attested` and `enrichment` are projected rather than served whole:
+`attested.realName` is the pseudonym→identity bridge (schema §5.2), and
+`enrichment.notes` argues for the very claim `unconfirmed` was dropped to
+withhold.
 
 Splitting the field is what makes the privacy rule mechanical rather than
 remembered: there is no code path that must "be careful with addresses", because
@@ -53,26 +64,47 @@ back with a denylist of forbidden fields rather than an allow-list of permitted
 ones — it reads as the smaller change, but it keeps blanket serialization as the
 default and so keeps the silent-leak failure mode for the *next* field.
 
-**Could-be-wrong-if**: a locality string turns out to re-identify as precisely as
-a street address for a material share of contacts. Concretely: if more than ~5%
-of `location` values resolve to places with a population under ~2,000 — where
-"lives in <town>" plus a name is a lookup — then `location` is not a coarser
-grade, it is the same grade with fewer characters, and it belongs in
-`HOLDBACK_FIELDS` with the street. Check by bucketing the built index's
-`location` values against any population table. A second falsifier: if enrichment
-backends begin returning street-level values in the `location` field despite the
-prompt constraint, the field is not structurally coarse and needs a validator,
-not an instruction — measurable as any banked `location` matching a street
-pattern (leading house number, or a street-type suffix).
+**Could-be-wrong-if**: `{name, location}` turns out to recover the street address
+as reliably as publishing it would. This is the falsifier that matters, and an
+earlier draft of it was **vacuous** — it thresholded on town population (~5% of
+localities under ~2,000 people), when the governing variable is NAME UNIQUENESS:
+a moderately uncommon full name is singular in a city of 100,000, so a
+population test essentially never fires and reads as an assurance it cannot
+provide. US people-search aggregators index on exactly `{full name, city}` and
+return street addresses, and the recipient of that pair is a web-search agent
+we have *instructed to search for this person* — so recovery is the tool's normal
+operation, not an attack. Restated as a check that can actually fail: sample 20
+`{name, location}` pairs from the built index, run each as a people-search query,
+and if **more than 25%** surface a street address on the first page, `location`
+is the same grade as the street and must come out of `MCP_SERVED_FIELDS`, off the
+§5.1 whitelist, and out of `contactBlock`. Run it locally and publish the
+pass/fail and nothing else — a locality histogram of a personal address book is
+itself a fingerprint (its modal city is the owner's city).
+
+A second falsifier, now **closed by construction**: if backends returned
+street-level values in the `location` field despite the prompt constraint, the
+field would not be structurally coarse. It no longer rests on the prompt —
+`looksLikeStreetAddress` in `enrich-core.mjs` refuses house numbers, unit
+designators and ZIPs at bank time, and `attest.mjs --location` refuses them at
+the CLI. The falsifier for *that* is a real locality the guard eats: if owners
+report legitimate cities being refused (numeric place names like "29 Palms"),
+the pattern is too broad.
 
 **How to apply**: A new source that carries an address populates BOTH fields via
 `buildAddress()` + `deriveLocation()` in `scripts/lib/ingest.mjs` — never one
-without the other, and never a hand-rolled parse. A new index field reaches the
-MCP seam only by being added to `SHAREABLE_FIELDS` deliberately; any new surface
-that serializes records needs its own allow-list and a leak test alongside the
-one in `test/clade-mcp.test.mjs`. When adding any future
+without the other, and never a hand-rolled parse. `location` has FOUR producers
+(ingest, enrichment, `attest.mjs`, and the operating session writing quick-adds);
+only ingest is coarse by construction, so the other three go through
+`looksLikeStreetAddress`. A new index field reaches the MCP seam only by being
+added to `MCP_SERVED_FIELDS` deliberately, and a nested object needs a projection,
+not just a top-level entry; any new surface that serializes records needs its own
+allow-list and a leak test alongside the ones in `test/clade-mcp.test.mjs` and
+`test/export-knowledge.test.mjs`. When adding any future
 field of mixed sensitivity, split it here rather than adding a rule about it:
 that is the generalizable part of this decision. `location` is subject to
-ADR-09's precedence rule like any other export-vs-research field — the owner's
-own value wins over an uncorroborated web claim, and a refused one lands in
-`unconfirmed`.
+ADR-09's precedence rule, with two field-specific departures: an OWNER-ATTESTED
+location outranks everything (including high-confidence research, which no other
+field allows), and an EMPTY first-party value is claimed only at medium+
+confidence — because unlike `employer`, empty is the DOMINANT case here
+(LinkedIn, Facebook and Bluesky all emit `location: ''` by construction). A
+refused claim lands in `unconfirmed`.

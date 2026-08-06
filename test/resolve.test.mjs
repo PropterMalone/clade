@@ -584,34 +584,141 @@ test('"Greater Chicago Area" corroborates "Chicago, IL" — metro phrasing is no
 
 test('a medium-confidence web location does NOT overwrite a conflicting first-party one', () => {
   const folded = foldGroup([rec('google-contacts:c', 'Dana Fox', { location: 'Evanston, IL' })], {
-    enrichments: { 'google-contacts:c': { location: 'Austin, TX', confidence: 'medium' } },
+    enrichments: { 'google-contacts:c': { location: 'Wichita, KS', confidence: 'medium' } },
   })
   assert.equal(folded.location, 'Evanston, IL')
-  assert.equal(folded.unconfirmed.location, 'Austin, TX', 'the refused claim stays auditable')
+  assert.equal(folded.unconfirmed.location, 'Wichita, KS', 'the refused claim stays auditable')
 })
 
-test('a high-confidence web location wins, and fills an empty one at any confidence', () => {
+test('a high-confidence web location wins over a conflicting first-party one', () => {
   const high = foldGroup([rec('google-contacts:h', 'Dana Fox', { location: 'Evanston, IL' })], {
-    enrichments: { 'google-contacts:h': { location: 'Austin, TX', confidence: 'high' } },
+    enrichments: { 'google-contacts:h': { location: 'Wichita, KS', confidence: 'high' } },
   })
-  assert.equal(high.location, 'Austin, TX')
-  const empty = foldGroup([rec('linkedin:e', 'Dana Fox')], {
-    enrichments: { 'linkedin:e': { location: 'Austin, TX', confidence: 'low' } },
-  })
-  assert.equal(empty.location, 'Austin, TX')
+  assert.equal(high.location, 'Wichita, KS')
+  assert.equal(high.locationSource, 'enrichment')
 })
+
+// An empty first-party location is the DOMINANT case — linkedin/facebook/bluesky
+// all emit '' by construction — so the employer rule's "empty field goes to
+// research at any confidence" would fill most of the index with unvetted guesses.
+// Thin contacts are also the ones carrying the owner's life-history prior, so a
+// low-confidence miss can mirror the owner's own cities back onto strangers.
+test('an empty location is claimed at medium+ confidence only, never at low', () => {
+  const low = foldGroup([rec('linkedin:e', 'Dana Fox')], {
+    enrichments: { 'linkedin:e': { location: 'Wichita, KS', confidence: 'low' } },
+  })
+  assert.equal(low.location, '', 'a low-confidence guess must not claim an empty location')
+  assert.equal(low.locationSource, '')
+  assert.equal(low.unconfirmed.location, 'Wichita, KS', 'but it stays auditable')
+
+  const medium = foldGroup([rec('linkedin:m', 'Dana Fox')], {
+    enrichments: { 'linkedin:m': { location: 'Wichita, KS', confidence: 'medium' } },
+  })
+  assert.equal(medium.location, 'Wichita, KS')
+  assert.equal(medium.locationSource, 'enrichment')
+})
+
+// The bug this comparator replaced: valuesConflict called ANY shared token
+// corroboration, so a low/medium web guess silently overwrote the owner's own
+// address-book city whenever the city OR the qualifier matched — with nothing
+// recorded in `unconfirmed`, so it degraded invisibly.
+for (const [own, web, why] of [
+  ['Portland, OR', 'Portland, ME', 'same city name, different state'],
+  ['Evanston, IL', 'Chicago, IL', 'different city, shared state'],
+  ['Cambridge, MA', 'Cambridge, United Kingdom', 'same city name, different country'],
+  ['Kansas City, MO', 'Kansas City, KS', 'multi-token city, different state'],
+  ['Wichita, KS', 'Wichita, Kansas', 'fails closed on qualifier spelling — keeps first-party'],
+]) {
+  test(`a medium-confidence "${web}" does not overwrite "${own}" (${why})`, () => {
+    const folded = foldGroup([rec('vcard:c', 'Dana Fox', { location: own })], {
+      enrichments: { 'vcard:c': { location: web, confidence: 'medium' } },
+    })
+    assert.equal(folded.location, own)
+    assert.equal(folded.locationSource, 'raw-address')
+    assert.equal(folded.unconfirmed.location, web, 'the refused claim must be auditable')
+  })
+}
 
 test('an attested location outranks both the export and the web', () => {
   const folded = foldGroup([rec('google-contacts:at', 'Dana Fox', { location: 'Evanston, IL' })], {
-    enrichments: { 'google-contacts:at': { location: 'Austin, TX', confidence: 'high' } },
-    attested: { 'google-contacts:at': { location: 'Oak Park, IL' } },
+    enrichments: { 'google-contacts:at': { location: 'Wichita, KS', confidence: 'high' } },
+    attested: { 'google-contacts:at': { location: 'Chicago, IL' } },
   })
-  assert.equal(folded.location, 'Oak Park, IL')
+  assert.equal(folded.location, 'Chicago, IL')
 })
 
 test('a rejected web location is NOT written into the searchable notes field', () => {
   const folded = foldGroup([rec('google-contacts:n', 'Dana Fox', { location: 'Evanston, IL' })], {
-    enrichments: { 'google-contacts:n': { location: 'Austin, TX', confidence: 'medium' } },
+    enrichments: { 'google-contacts:n': { location: 'Wichita, KS', confidence: 'medium' } },
   })
-  assert.doesNotMatch(folded.notes, /Austin/)
+  assert.doesNotMatch(folded.notes, /Wichita/)
+})
+
+test('a formatted-only address survives the fold (Google allows one with no components)', () => {
+  const folded = foldGroup(
+    [rec('google-contacts:f', 'Dana Fox', { addresses: [{ type: 'home', formatted: '1400 Sherman Ave, Evanston, IL 60201' }] })],
+    {},
+  )
+  assert.equal(folded.addresses.length, 1, 'the record\'s only address must not vanish between ingest and index')
+  assert.equal(folded.addresses[0].formatted, '1400 Sherman Ave, Evanston, IL 60201')
+})
+
+test('a type-only address object is still dropped', () => {
+  const folded = foldGroup([rec('vcard:t', 'Dana Fox', { addresses: [{ type: 'home' }] })], {})
+  assert.deepEqual(folded.addresses, [])
+})
+
+test('dedup ignores `type` — one export labels the home, the other says nothing', () => {
+  const home = { type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL' }
+  const untyped = { street: '1400 Sherman Ave', city: 'Evanston', region: 'IL' }
+  const folded = foldGroup(
+    [rec('vcard:a', 'Dana Fox', { addresses: [home] }), rec('google-contacts:b', 'Dana Fox', { addresses: [untyped] })],
+    {},
+  )
+  assert.equal(folded.addresses.length, 1, 'same place, differently labeled, must collapse to one')
+})
+
+test('an attested location that AGREES with the web claim records no refusal', () => {
+  const folded = foldGroup([rec('google-contacts:ag', 'Dana Fox', { location: 'Evanston, IL' })], {
+    enrichments: { 'google-contacts:ag': { location: 'Wichita, KS', confidence: 'medium' } },
+    attested: { 'google-contacts:ag': { location: 'Wichita, KS' } },
+  })
+  assert.equal(folded.location, 'Wichita, KS')
+  assert.equal(folded.locationSource, 'attested')
+  assert.equal(folded.unconfirmed, null, 'the record must not claim to refuse a claim it reports as authoritative')
+})
+
+test('a refused LOCATION does not blank the enrichment narrative out of notes', () => {
+  const folded = foldGroup([rec('vcard:n', 'Dana Fox', { location: 'Evanston, IL', employer: 'Acme' })], {
+    enrichments: {
+      'vcard:n': { location: 'Wichita, KS', employer: 'Acme', confidence: 'medium', notes: 'Partner at Acme, energy practice, per firm bio.' },
+    },
+  })
+  assert.equal(folded.location, 'Evanston, IL')
+  assert.match(folded.notes, /energy practice/, 'the narrative argues for the ACCEPTED employer; only an employer/title refusal suppresses it')
+  assert.equal(folded.unconfirmed.location, 'Wichita, KS')
+})
+
+// Defense in depth: the write-time guards each cover one producer, but the index
+// is where the shareable grade is constituted. A value banked before a guard
+// existed must not reach the export, the seam, or a prompt.
+test('a street-shaped location is dropped at fold time, whatever its origin', () => {
+  const street = '1400 Sherman Ave, Evanston, IL 60201'
+  const attested = foldGroup([rec('vcard:s1', 'Dana Fox')], { attested: { 'vcard:s1': { location: street } } })
+  assert.equal(attested.location, '', 'a legacy attested street address must not become the shareable grade')
+  assert.equal(attested.locationSource, '')
+
+  const enriched = foldGroup([rec('vcard:s2', 'Dana Fox')], {
+    enrichments: { 'vcard:s2': { location: street, confidence: 'high' } },
+  })
+  assert.equal(enriched.location, '')
+
+  const sourced = foldGroup([rec('vcard:s3', 'Dana Fox', { location: street })], {})
+  assert.equal(sourced.location, '')
+})
+
+test('the fold-time guard does not eat real localities', () => {
+  for (const city of ['Evanston, IL', 'St. Louis, MO', 'Bristol, United Kingdom', 'Greater Chicago Area']) {
+    assert.equal(foldGroup([rec('vcard:ok', 'Dana Fox', { location: city })], {}).location, city)
+  }
 })

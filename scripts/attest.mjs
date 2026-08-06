@@ -18,6 +18,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import { looksLikeStreetAddress } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
 import { dataPath } from './paths.mjs'
 
@@ -53,7 +54,19 @@ function main() {
   if (context !== undefined) entry.context = context
   if (domains !== undefined) entry.domains = domains.split(',').map((d) => d.trim()).filter(Boolean)
   if (realName !== undefined) entry.realName = realName
-  if (location !== undefined) entry.location = location
+  if (location !== undefined) {
+    // Refuse loudly rather than silently storing a street address in the field
+    // that IS allowed to travel (ADR-10). The owner typed this, so tell them
+    // where it belongs instead of dropping it — attest.mjs is the only producer
+    // of `location` with a human on the other end.
+    if (looksLikeStreetAddress(location)) {
+      console.error(`Refusing --location ${JSON.stringify(location)}: that looks like a street address.`)
+      console.error('`location` is the SHAREABLE grade — it reaches enrichment prompts, the Project export, and the MCP seam.')
+      console.error('Pass a city/region ("Evanston, IL"). Street addresses belong in a record\'s addresses[], via address-book ingest.')
+      process.exit(1)
+    }
+    entry.location = location
+  }
 
   if (Object.keys(entry).length === 0) {
     console.error('Nothing to attest — pass at least one of --relationship/--context/--domains/--real-name/--location.')

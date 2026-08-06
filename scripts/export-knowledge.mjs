@@ -34,6 +34,37 @@ export function skipReason(name) {
 // Claude session treats as trusted knowledge (review C6).
 const line = (s) => clean(s, 1000).replace(/\s+/g, ' ').trim()
 
+// EXPORTED so the hold-back can be tested. This function's output is uploaded
+// wholesale to a claude.ai Project — the highest-volume egress artifact in the
+// project — and until 2026-08-06 it was the one ADR-10 egress path guarded by a
+// comment rather than a test, while the schema doc asserted it was enforced. It
+// is an explicit allow-list by construction; the test is what keeps it one.
+export function contactBlock(c) {
+  const parts = []
+  const prof = [c.profession, c.employer].filter(Boolean).join(' at ')
+  if (prof) parts.push(prof)
+  // Locality, never the street address (ADR-10): everything here leaves the
+  // machine. "Who do I know in Chicago?" is one of the main questions the
+  // Project surface exists to answer, and it needs the city.
+  if (c.location) parts.push(`location: ${c.location}`)
+  if (c.attested?.relationship) parts.push(`relationship: ${c.attested.relationship}`)
+  if (c.attested?.context) parts.push(c.attested.context)
+  if ((c.domains || []).length) parts.push(`expertise: ${c.domains.join(', ')}`)
+  if ((c.labels || []).length) parts.push(`labels: ${c.labels.join(', ')}`)
+  const contact = [
+    ...(c.emails || []).slice(0, 2),
+    ...Object.entries(c.handles || {}).map(([p, h]) => `${p} @${h}`),
+    c.linkedinUrl,
+  ].filter(Boolean)
+  if (contact.length) parts.push(`contact: ${contact.join(', ')}`)
+  if (c.notes) parts.push(c.notes)
+  const conn = Object.entries(c.connectedOn || {})
+    .map(([s, d]) => `${s} ${d}`)
+    .join('; ')
+  if (conn) parts.push(`connected: ${conn}`)
+  return line(parts.join('. ')) || '(no details yet)'
+}
+
 function main() {
   if (!existsSync(INDEX_PATH)) {
     console.error(`No ${INDEX_PATH} — run: node scripts/build-index.mjs`)
@@ -49,32 +80,8 @@ function main() {
       skipped[skip]++
       continue
     }
-    const parts = []
-    const prof = [c.profession, c.employer].filter(Boolean).join(' at ')
-    if (prof) parts.push(prof)
-    // Locality, never the street address (ADR-10): this file is uploaded to a
-    // claude.ai Project, so everything here leaves the machine. "Who do I know
-    // in Chicago?" is one of the main questions the Project surface exists to
-    // answer, and it needs the city.
-    if (c.location) parts.push(`location: ${c.location}`)
-    if (c.attested?.relationship) parts.push(`relationship: ${c.attested.relationship}`)
-    if (c.attested?.context) parts.push(c.attested.context)
-    if ((c.domains || []).length) parts.push(`expertise: ${c.domains.join(', ')}`)
-    if ((c.labels || []).length) parts.push(`labels: ${c.labels.join(', ')}`)
-    const contact = [
-      ...(c.emails || []).slice(0, 2),
-      ...Object.entries(c.handles || {}).map(([p, h]) => `${p} @${h}`),
-      c.linkedinUrl,
-    ].filter(Boolean)
-    if (contact.length) parts.push(`contact: ${contact.join(', ')}`)
-    if (c.notes) parts.push(c.notes)
-    const conn = Object.entries(c.connectedOn || {})
-      .map(([s, d]) => `${s} ${d}`)
-      .join('; ')
-    if (conn) parts.push(`connected: ${conn}`)
-
     lines.push(`## ${line(c.name)}`)
-    lines.push(line(parts.join('. ')) || '(no details yet)')
+    lines.push(contactBlock(c))
     lines.push('')
   }
 

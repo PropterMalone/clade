@@ -53,7 +53,7 @@ const TOOLS = [
   {
     name: 'get_contact',
     description:
-      'Fetch the full record for ONE contact — every email, phone, handle, URL, note, source, and connection date. Look up by (partial) name, or by a durable "<source>:<sourceId>" key. Any name matching more than one person returns a disambiguation list instead of records, so narrow the name or use a key.',
+      'Fetch the record for ONE contact — every email, phone, handle, URL, note, source, city, and connection date. Look up by (partial) name, or by a durable "<source>:<sourceId>" key. Any name matching more than one person returns a disambiguation list instead of records, so narrow the name or use a key. Street addresses, owner-recalled real names behind pseudonyms, and refused web claims are withheld from this tool by design — their ABSENCE HERE DOES NOT MEAN the index lacks them; say so rather than reporting the contact has none.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -106,16 +106,51 @@ export function cleanRecord(value) {
 // (web claims the fold REFUSED — they may describe a different person entirely,
 // which is why `search.mjs` and `export-knowledge.mjs` skip them too; surfacing
 // them to a consuming agent re-creates the bug the precedence rule prevents).
-const SHAREABLE_FIELDS = [
+// NOTE ON NAMING: this is the MCP-SERVED list — what the owner's own assistant
+// may read. It is deliberately BROADER than schema.md §5.1's *networkable*
+// whitelist (which is `did`/`handles`/`urls`/`bio`/`location` only): emails,
+// phones and notes are here because the owner querying their own rolodex needs
+// them. Do not reuse this constant to build the future networked layer.
+const MCP_SERVED_FIELDS = [
   'id', 'name', 'nameSource', 'keys', 'sources', 'dids', 'edge',
   'emails', 'phones', 'handles', 'urls', 'linkedinUrl',
-  'profession', 'employer', 'location', 'domains', 'roles', 'labels',
-  'bio', 'notes', 'connectedOn', 'tier', 'confidence', 'attested', 'enrichment',
+  'profession', 'employer', 'location', 'locationSource', 'domains', 'roles', 'labels',
+  'bio', 'notes', 'connectedOn', 'tier', 'confidence',
 ]
+
+// A top-level allow-list is DEPTH-1, and two of the served objects carry keys
+// that must not cross the seam (review 2026-08-06), so both are projected:
+//
+//   attested.realName — the persona→real-identity bridge. schema.md §5.2 and
+//     ADR-04 say it never networks and privacy rule 3 forbids unmasking; served
+//     whole, it arrived next to the pseudonymous handle it unmasks.
+//   enrichment.notes  — the narrative that ARGUES FOR a refused claim. Dropping
+//     `unconfirmed` from the seam while serving this re-admitted the same claim
+//     in prose, so it is withheld exactly when a refusal was recorded.
+const attestedProjection = (a) =>
+  a && typeof a === 'object'
+    ? {
+        ...(a.relationship ? { relationship: a.relationship } : {}),
+        ...(a.context ? { context: a.context } : {}),
+        ...(Array.isArray(a.domains) && a.domains.length ? { domains: a.domains } : {}),
+        ...(a.location ? { location: a.location } : {}),
+      }
+    : a
+
+const enrichmentProjection = (e, refused) =>
+  e && typeof e === 'object'
+    ? {
+        confidence: e.confidence,
+        enrichedAt: e.enrichedAt || '',
+        ...(refused ? {} : { notes: e.notes || '' }),
+      }
+    : e
 
 const record = (c) => {
   const shareable = {}
-  for (const f of SHAREABLE_FIELDS) if (f in c) shareable[f] = c[f]
+  for (const f of MCP_SERVED_FIELDS) if (f in c) shareable[f] = c[f]
+  if (c.attested) shareable.attested = attestedProjection(c.attested)
+  if (c.enrichment) shareable.enrichment = enrichmentProjection(c.enrichment, Boolean(c.unconfirmed))
   return JSON.stringify(cleanRecord(shareable), null, 2)
 }
 

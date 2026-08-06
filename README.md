@@ -126,9 +126,12 @@ multi-hop questions. There is also a CLI for quick lookups:
 `node search.mjs --stats`.
 
 Addresses come along from the sources that carry them (your vCard and Google
-Contacts exports), and they arrive at two grades: the city is searchable and
-travels with the rest of the rolodex, while the street address stays on your
-machine — no prompt, no export, no query surface ever sees it.
+Contacts exports), and they arrive at two grades. The city is searchable and
+travels with the rest of the rolodex. The street address does not: no research
+prompt, no Project export, no MCP result ever carries it — only your own session
+reads it, when you ask for it. Worth knowing the limit: a city plus a full name
+is enough for a people-search site to look the street address up, so the coarse
+grade is a real reduction in exposure, not a guarantee of none.
 
 When you meet someone new, jot them in `imports/quickadd.md` (you can edit it
 from the GitHub app on your phone right after a meeting) and later say
