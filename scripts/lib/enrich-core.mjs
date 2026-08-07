@@ -201,15 +201,41 @@ const dropNonAnswer = (s) => (s && !isNonAnswer(s) ? s : '')
 // prompt (review 2026-08-06). Every other model-controlled field with a shape is
 // already validated: linkedinUrl by regex, confidence by enum, expertise by cap.
 //
-// Signals, chosen to avoid the obvious false positives — a bare street-type word
-// is NOT one, because "St. Louis, MO" and "Lake Placid, NY" are cities:
-//   1. a leading house number ("1400 Kestrel Ave", "222 S Marlin Dr")
-//   2. a unit designator (Apt 4, Suite 900, Ste 2, Unit B, PO Box 12, #4)
-//   3. a US ZIP — narrower than a city, so it belongs on the hold-back side
+// This is the ONLY runtime control between a model-returned or hand-typed value
+// and every "safe to share" egress path, so it must not be defeatable by
+// formatting. An earlier version anchored the house-number rule to the start of
+// the string, and two independent reviewers broke it in one line each: "Home:
+// 1400 Kestrel Ave", "c/o Jane, 1400 Kestrel Ave", "- 1400 Kestrel Ave",
+// "Kestrel Ave 1400" (number after the street), "Flat 4b, 12 High Street",
+// "1400-1402 Kestrel Ave", "One Microsoft Way". Every one of those sailed
+// through. Note also that the three call sites are NOT independent layers — they
+// all delegate here — so a bypass defeats all of them at once.
+//
+// Signals, chosen to avoid the obvious false positives ("St. Louis, MO" and
+// "Lake Placid, NY" are cities, and a bare street-type WORD is therefore not a
+// signal on its own):
+//   1. digits anywhere + a street-type word ("1400 Kestrel Ave", "Kestrel Ave 1400")
+//   2. a street-type word ending the first comma-segment ("One Microsoft Way, Redmond")
+//   3. a unit designator anywhere, punctuation-tolerant (Apt 4, Flat 4b,
+//      "Second Floor, 100 Main St", Ste 2, Unit B, PO Box 12, Bldg 3, #4)
+//   4. a US ZIP — narrower than a city, so it belongs on the hold-back side
 // Fails CLOSED: "29 Palms, CA" is refused and the export value stands. That costs
 // one refresh; the opposite error puts a home address in a shared session.
-const STREET_SHAPED_RE =
-  /(^\s*\d+[a-z]?\s+\p{L})|(\b(?:apt|apartment|ste|suite|unit|rm|room|fl(?:oor)?|p\.?\s?o\.?\s+box)\b\.?\s*[\w-]+)|(#\s*\w+)|(\b\d{5}(?:-\d{4})?\b)/iu
+const STREET_TYPES =
+  'st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|way|ct|court|pl|place|pkwy|parkway|ter|terrace|cir|circle|hwy|highway|sq|square'
+const UNIT_WORDS =
+  'apt|apartment|flat|ste|suite|unit|rm|room|fl|floor|bldg|building|p\\.?\\s?o\\.?\\s+box|no'
+const STREET_SHAPED_RE = new RegExp(
+  [
+    `\\d[\\d-]*\\s*\\p{L}[^,]*\\b(?:${STREET_TYPES})\\b`, // digits then a street type
+    `\\b(?:${STREET_TYPES})\\b[^,]*\\d`, // street type then digits
+    `^[^,]*\\b(?:${STREET_TYPES})\\b\\.?\\s*(?:,|$)`, // street type ends the first segment
+    `\\b(?:${UNIT_WORDS})\\b\\.?[\\s,]*[\\w-]+`, // unit designator + identifier
+    '#\\s*\\w+',
+    '\\b\\d{5}(?:-\\d{4})?\\b', // US ZIP
+  ].join('|'),
+  'iu',
+)
 
 export const looksLikeStreetAddress = (s) => typeof s === 'string' && STREET_SHAPED_RE.test(s)
 

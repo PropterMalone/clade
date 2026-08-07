@@ -219,18 +219,24 @@ test('get_contact omits `unconfirmed` — a refused claim may describe another p
 
 // The allow-list is depth-1; these two served objects carry keys that must not
 // cross the seam, so both are projected (review 2026-08-06).
-test('get_contact never serves attested.realName — the pseudonym bridge', () => {
-  const bridged = [{
-    ...ADDRESSED_INDEX[0],
-    name: 'jaydub',
-    handles: { bluesky: 'jaydub.bsky.social' },
-    attested: { relationship: 'cousin', context: 'kickball league', realName: 'Jane Wilson Emerson' },
-  }]
-  const out = callTool('get_contact', { name: 'jaydub' }, bridged)
-  assert.ok(!out.includes('Jane Wilson Emerson'), 'a real name must never be served beside the handle it unmasks')
-  assert.ok(!out.includes('realName'))
-  assert.match(out, /cousin/, 'the rest of the attested entry still serves')
-  assert.match(out, /kickball league/)
+// Built through buildIndex, NOT hand-assembled: an earlier version of this test
+// hand-set `name: 'jaydub'` beside `attested.realName`, a state foldGroup cannot
+// produce — so it pinned an unreachable case and could never fail. Review caught
+// it by running the real pipeline. Any guard test for a fold-derived invariant
+// has to be built by the fold.
+test('an attested realName rides the top-level name, not a second nested copy', async () => {
+  const { buildIndex } = await import('../scripts/lib/resolve.mjs')
+  const { unified } = buildIndex({
+    sources: [{ source: 'bluesky', records: [{ sourceId: 'jw', name: 'jaydub', handles: { bluesky: 'jaydub.bsky.social' } }] }],
+    attested: { 'bluesky:jw': { relationship: 'cousin', context: 'kickball league', realName: 'Jane Wilson Emerson' } },
+  })
+  assert.equal(unified[0].name, 'Jane Wilson Emerson', 'the fold promotes it — this is the reachable state')
+  assert.equal(unified[0].nameSource, 'attested', 'and tags it, which is how a networked build excludes it')
+
+  const out = callTool('get_contact', { name: 'Jane' }, unified)
+  assert.ok(!out.includes('"realName"'), 'the nested duplicate stays off the seam')
+  assert.match(out, /"nameSource": "attested"/, 'the provenance a remote deployment must filter on IS served')
+  assert.match(out, /cousin/)
 })
 
 test('get_contact withholds the enrichment narrative when a claim was refused', () => {

@@ -339,7 +339,7 @@ export function googleContactsRecords(csvText) {
     const addresses = []
     for (let n = 1; n <= 3; n++) {
       const addr = buildAddress({
-        type: col(row, `Address ${n} - Type`),
+        type: col(row, `Address ${n} - Label`) || col(row, `Address ${n} - Type`),
         formatted: col(row, `Address ${n} - Formatted`),
         pobox: col(row, `Address ${n} - PO Box`),
         extended: col(row, `Address ${n} - Extended Address`),
@@ -522,10 +522,10 @@ function parseVcard(lines) {
         const [pobox, extended, street, city, region, postal, country] = splitVcardStructured(p.value, ';').map((s) => unescapeVcard(s).trim())
         const addr = buildAddress({
           type: (p.params.type || []).find((t) => t !== 'pref') || '',
-          // RFC 6350 §6.3.1's LABEL param is "a plain-text string representing
-          // the formatted address" — the vCard analog of Google's Formatted
-          // column, already parsed and previously discarded.
-          formatted: p.params.label ? unescapeVcard(p.params.label).trim() : '',
+          // NOT reading RFC 6350's LABEL param, deliberately: its value may hold
+          // ':' and ';' inside a quoted-string, and parseVcardLine splits naively
+          // on both — consuming it corrupted `pobox` and `type` with label
+          // fragments, silently. Google's Formatted column covers `formatted`.
           pobox, extended, street, city, region, postal, country,
         })
         if (addr) c.addresses.push(addr)

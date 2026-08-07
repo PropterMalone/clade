@@ -32,10 +32,14 @@ until now Clade dropped the data at ingest (vCard `ADR` explicitly, Google's
 `Address N` columns by omission) while the enrichment prompt was *simultaneously*
 telling the agent to corroborate identity on city and giving it nowhere to record
 the answer. But the two questions want different grades of the same fact. A
-street address is the most sensitive field the corpus would hold, and the three
-egress paths that already exist (`export-knowledge.mjs` → a claude.ai Project,
-`clade-mcp.mjs` → any consuming session, `enrich-core.mjs` → a research backend)
-would each have carried it by default. `get_contact` in particular serialized the
+street address is the most sensitive field the corpus would hold, and of the
+three egress paths that already exist, ONE would have carried it by default —
+`get_contact`, which serialized whole entries. The other two
+(`export-knowledge.mjs` → a claude.ai Project, `enrich-core.mjs` → a research
+backend) are explicit field builders and would have silently DROPPED it. That
+asymmetry is the argument, and it is stronger stated correctly: an allow-list
+that misses a new field fails visibly, a blanket dump that includes one fails
+silently. `get_contact` in particular serialized the
 *whole* unified entry, so adding one field to the index would have leaked it over
 the seam with no code change and no decision — ADR-08's How-to-apply §1, in the
 concrete. That also exposed a standing gap between the published contract and the
@@ -79,9 +83,18 @@ and if **more than 25%** surface a street address on the first page, `location`
 is the same grade as the street and must come out of `MCP_SERVED_FIELDS`, off the
 §5.1 whitelist, and out of `contactBlock`. Run it locally and publish the
 pass/fail and nothing else — a locality histogram of a personal address book is
-itself a fingerprint (its modal city is the owner's city).
+itself a fingerprint (its modal city is the owner's city). **Sample only pairs
+whose `locationSource` is `enrichment`** — those localities are already web-
+published, so querying them discloses nothing new. Never submit an `attested` or
+`first-party` pair: ADR-08 classes those as owner-custody, and the observer here
+is a re-identification broker that retains query logs and sells the associated-
+persons signal a burst of lookups generates. Run it unauthenticated, in a fresh
+session. The exposure to weigh is the query log, not just what gets published.
 
-A second falsifier, now **closed by construction**: if backends returned
+A second falsifier, now **closed against the number-, unit-, street-type- and
+ZIP-shaped forms** (not "by construction" — it is a pattern, and review broke an
+earlier version of it with a labelled prefix, a reordered number, and an ordinal
+street name; the shapes it now refuses are pinned in `test/enrich-core.test.mjs`): if backends returned
 street-level values in the `location` field despite the prompt constraint, the
 field would not be structurally coarse. It no longer rests on the prompt —
 `looksLikeStreetAddress` in `enrich-core.mjs` refuses house numbers, unit
@@ -93,9 +106,13 @@ the pattern is too broad.
 **How to apply**: A new source that carries an address populates BOTH fields via
 `buildAddress()` + `deriveLocation()` in `scripts/lib/ingest.mjs` — never one
 without the other, and never a hand-rolled parse. `location` has FOUR producers
-(ingest, enrichment, `attest.mjs`, and the operating session writing quick-adds);
-only ingest is coarse by construction, so the other three go through
-`looksLikeStreetAddress`. A new index field reaches the MCP seam only by being
+(ingest, enrichment, `attest.mjs`, and the operating session writing quick-adds).
+Three are guarded at WRITE time — ingest by construction, enrichment in
+`validateEnrichment`, `attest.mjs` at the CLI. The quick-add path is NOT: it
+writes `manual.json` through `data-write.mjs`, which validates the path and not
+the content, so it is caught only by the fold-time guard in `foldGroup`, and
+caught silently. `foldGroup` is also the backstop for anything banked before a
+guard existed. A new index field reaches the MCP seam only by being
 added to `MCP_SERVED_FIELDS` deliberately, and a nested object needs a projection,
 not just a top-level entry; any new surface that serializes records needs its own
 allow-list and a leak test alongside the ones in `test/clade-mcp.test.mjs` and
@@ -103,8 +120,10 @@ allow-list and a leak test alongside the ones in `test/clade-mcp.test.mjs` and
 field of mixed sensitivity, split it here rather than adding a rule about it:
 that is the generalizable part of this decision. `location` is subject to
 ADR-09's precedence rule, with two field-specific departures: an OWNER-ATTESTED
-location outranks everything (including high-confidence research, which no other
-field allows), and an EMPTY first-party value is claimed only at medium+
+location outranks everything, including high-confidence research — the same
+precedence `name` already gives `attested.realName`, so this is the house rule
+rather than an exception — and an EMPTY first-party value is claimed only at
+medium+
 confidence — because unlike `employer`, empty is the DOMINANT case here
 (LinkedIn, Facebook and Bluesky all emit `location: ''` by construction). A
 refused claim lands in `unconfirmed`.

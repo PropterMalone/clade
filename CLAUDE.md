@@ -17,8 +17,10 @@ merging, research, and searching.
 2. The only data that leaves custody: enrichment traffic to the owner's own
    agent — web-search queries are one person per query, and the
    URL-confirmation tier may batch up to four contacts' PUBLIC-PROFILE fields
-   (name, employer, title, location, bio, links, handles; never street
-   addresses, attested notes, labels, emails, or the owner's life history) into
+   (name, employer, title, bio, links, handles, and a location ONLY when it came
+   from web research — never one derived from the owner's address book or
+   attested by them; never street addresses, attested notes, labels, emails, or
+   the owner's life history) into
    one session — and whatever query surface the owner explicitly sets up (e.g. a
    claude.ai Project knowledge file). Owner-private context goes only into
    single-contact sessions. `location` is a city/region and travels; the

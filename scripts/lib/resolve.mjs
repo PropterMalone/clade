@@ -498,6 +498,37 @@ function preferExportOnConflict({ web, own, alternates = [], confidence, stopwor
   return corroborated ? { value: webValue, rejected: '' } : { value: ownValue, rejected: webValue }
 }
 
+// Street addresses union across a merged person, deduped on the GEOGRAPHIC
+// components — the same home arriving from a vCard and from Google Contacts is
+// one address, even when one export labels it "home" and the other says nothing.
+// `formatted` is excluded from the dedupe KEY (two copies differing only in a
+// source-supplied one-line form are the same place) but counts for EMPTINESS:
+// Google's People API allows a formattedValue with no structured components, and
+// reusing the dedupe key as the empty test silently deleted those addresses
+// between the normalized file and the index.
+const ADDRESS_DEDUPE_FIELDS = ['pobox', 'extended', 'street', 'city', 'region', 'postal', 'country']
+const ADDRESS_CONTENT_FIELDS = ['formatted', ...ADDRESS_DEDUPE_FIELDS]
+
+export function addressUnion(group) {
+  const addresses = []
+  const seen = new Set()
+  for (const r of group) {
+    for (const a of Array.isArray(r.addresses) ? r.addresses : []) {
+      if (!a || typeof a !== 'object' || Array.isArray(a)) continue
+      if (!ADDRESS_CONTENT_FIELDS.some((f) => String(a[f] ?? '').trim())) continue // type-only: no place in it
+      const geo = ADDRESS_DEDUPE_FIELDS.map((f) => String(a[f] ?? '').trim().toLowerCase()).join('|')
+      // A formatted-only address has no structured components, so the geographic
+      // key collapses to empty and it would skip dedup entirely — two copies of
+      // the same one from two sources both landed. Fall back to `formatted`.
+      const norm = geo.replace(/\|/g, '') ? geo : String(a.formatted ?? '').trim().toLowerCase()
+      if (norm && seen.has(norm)) continue
+      if (norm) seen.add(norm)
+      addresses.push(a)
+    }
+  }
+  return addresses
+}
+
 export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   const keys = group.map((r) => r.key)
   const enrich = pickEnrichment(keys, enrichments)
@@ -616,26 +647,7 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   // one address, even when one export labels it "home" and the other says
   // nothing. HOLD-BACK (ADR-10): this array is for the owner's own use and is
   // stripped from every egress path; `location` above is the shareable grade.
-  // `formatted` is excluded from the dedupe KEY (two copies of one address that
-  // differ only in a source-supplied one-line form are the same place) but must
-  // count for EMPTINESS — Google's People API allows a formattedValue with no
-  // structured components, and reusing the dedupe key as the empty test silently
-  // deleted those addresses between the normalized file and the index (review
-  // 2026-08-06). Emptiness is judged against every content field.
-  const ADDRESS_DEDUPE_FIELDS = ['pobox', 'extended', 'street', 'city', 'region', 'postal', 'country']
-  const ADDRESS_CONTENT_FIELDS = ['formatted', ...ADDRESS_DEDUPE_FIELDS]
-  const addresses = []
-  const seenAddresses = new Set()
-  for (const r of group) {
-    for (const a of r.addresses || []) {
-      if (!a || typeof a !== 'object' || Array.isArray(a)) continue
-      if (!ADDRESS_CONTENT_FIELDS.some((f) => String(a[f] ?? '').trim())) continue // type-only: no place in it
-      const norm = ADDRESS_DEDUPE_FIELDS.map((f) => String(a[f] ?? '').trim().toLowerCase()).join('|')
-      if (norm.replace(/\|/g, '') && seenAddresses.has(norm)) continue
-      if (norm.replace(/\|/g, '')) seenAddresses.add(norm)
-      addresses.push(a)
-    }
-  }
+  const addresses = addressUnion(group)
 
   // A refused LOCATION must not blank the enrichment narrative out of `notes`:
   // that narrative argues for a refused EMPLOYER or TITLE, which is why the

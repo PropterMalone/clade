@@ -531,3 +531,40 @@ test('validateEnrichmentBatch keeps per-contact location', () => {
   )
   assert.equal(out[0]?.location, 'Chicago, IL')
 })
+
+// The guard is the SOLE runtime control between a model-returned or hand-typed
+// value and every "safe to share" egress path — the three call sites all delegate
+// here, so they are not independent layers. Three reviewers broke the first
+// version in one line each; every shape below is one of theirs.
+test('looksLikeStreetAddress catches the formatting bypasses, not just the textbook shape', async () => {
+  const { looksLikeStreetAddress } = await import('../scripts/lib/enrich-core.mjs')
+  const street = [
+    '1400 Kestrel Ave, Evanston, IL 60201',
+    'Home: 1400 Kestrel Ave, Evanston, IL',      // labelled prefix
+    'c/o Jane Wilson, 1400 Kestrel Ave',          // care-of prefix
+    '- 1400 Kestrel Ave, Evanston',               // list marker
+    '(1400 Kestrel Ave), Evanston',               // parenthesised
+    'Kestrel Ave 1400, Evanston, IL',             // number AFTER the street
+    '1400-1402 Kestrel Ave, Evanston',            // hyphenated range
+    '123 1st Ave, Evanston, IL',                  // ordinal street name
+    '350 5th Ave, New York, NY',
+    '1600 42nd St, Chicago, IL',
+    'One Microsoft Way, Redmond, WA',             // spelled-out number
+    'Flat 4b, 12 High Street, London',            // non-US unit word
+    'Second Floor, 100 Main St',                  // unit word, comma before number
+    'PO Box 12, Evanston',
+    'Evanston, IL 60201',                         // ZIP is narrower than a city
+  ]
+  for (const s of street) assert.ok(looksLikeStreetAddress(s), `must refuse: ${s}`)
+})
+
+test('looksLikeStreetAddress does not eat real localities', async () => {
+  const { looksLikeStreetAddress } = await import('../scripts/lib/enrich-core.mjs')
+  const cities = [
+    'Evanston, IL', 'Chicago, IL', 'Wichita, KS', 'Greater Chicago Area',
+    'St. Louis, MO',           // "St" is Saint here, not Street
+    'Lake Placid, NY', 'Kansas City, MO', 'Portland, OR',
+    'Bristol, United Kingdom', 'Cambridge, United Kingdom', 'New York, NY', 'San Francisco, CA',
+  ]
+  for (const s of cities) assert.ok(!looksLikeStreetAddress(s), `must keep: ${s}`)
+})

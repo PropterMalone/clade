@@ -53,7 +53,7 @@ const TOOLS = [
   {
     name: 'get_contact',
     description:
-      'Fetch the record for ONE contact — every email, phone, handle, URL, note, source, city, and connection date. Look up by (partial) name, or by a durable "<source>:<sourceId>" key. Any name matching more than one person returns a disambiguation list instead of records, so narrow the name or use a key. Street addresses, owner-recalled real names behind pseudonyms, and refused web claims are withheld from this tool by design — their ABSENCE HERE DOES NOT MEAN the index lacks them; say so rather than reporting the contact has none.',
+      'Fetch the record for ONE contact — every email, phone, handle, URL, note, source, city, and connection date. Look up by (partial) name, or by a durable "<source>:<sourceId>" key. Any name matching more than one person returns a disambiguation list instead of records, so narrow the name or use a key. Street addresses and refused web claims are withheld from this tool by design — their absence here does not mean the index lacks them, so if asked for one, say this tool does not serve it and the owner\'s own session can read it. A "nameSource" of "attested" or "enrichment" means the displayed name came from the owner or from research rather than the source export.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -114,16 +114,25 @@ export function cleanRecord(value) {
 const MCP_SERVED_FIELDS = [
   'id', 'name', 'nameSource', 'keys', 'sources', 'dids', 'edge',
   'emails', 'phones', 'handles', 'urls', 'linkedinUrl',
-  'profession', 'employer', 'location', 'locationSource', 'domains', 'roles', 'labels',
+  'profession', 'employer', 'location', 'domains', 'roles', 'labels',
   'bio', 'notes', 'connectedOn', 'tier', 'confidence',
 ]
 
 // A top-level allow-list is DEPTH-1, and two of the served objects carry keys
 // that must not cross the seam (review 2026-08-06), so both are projected:
 //
-//   attested.realName — the persona→real-identity bridge. schema.md §5.2 and
-//     ADR-04 say it never networks and privacy rule 3 forbids unmasking; served
-//     whole, it arrived next to the pseudonymous handle it unmasks.
+//   attested.realName — the persona→real-identity bridge (schema.md §5.2).
+//     HONEST LIMIT, found by review after an earlier version of this comment
+//     overclaimed: dropping it here removes a DUPLICATE, not the bridge, because
+//     `foldGroup` promotes an attested realName into the top-level `name` and
+//     stamps `nameSource: 'attested'` — and `name`, `nameSource` and `handles`
+//     are all served. So the owner's own assistant DOES see the real name beside
+//     the handle, which is correct for deployment class A (they typed it; a
+//     get_contact name lookup needs it) and is a real exposure for the remote
+//     classes in docs/mcp-kit.md. A class B/C server must filter on
+//     `nameSource === 'attested'`, which is exactly what that field is for.
+//     Dropping the nested copy still earns its place: it keeps the bridge on one
+//     auditable field instead of two.
 //   enrichment.notes  — the narrative that ARGUES FOR a refused claim. Dropping
 //     `unconfirmed` from the seam while serving this re-admitted the same claim
 //     in prose, so it is withheld exactly when a refusal was recorded.
@@ -134,6 +143,9 @@ const attestedProjection = (a) =>
         ...(a.context ? { context: a.context } : {}),
         ...(Array.isArray(a.domains) && a.domains.length ? { domains: a.domains } : {}),
         ...(a.location ? { location: a.location } : {}),
+        // `corroboration: 'web'` marks a cue-tag PROPOSAL, not the owner's words.
+        // Dropping it served a machine guess as owner-attested fact.
+        ...(a.corroboration ? { corroboration: a.corroboration } : {}),
       }
     : a
 
@@ -150,7 +162,10 @@ const record = (c) => {
   const shareable = {}
   for (const f of MCP_SERVED_FIELDS) if (f in c) shareable[f] = c[f]
   if (c.attested) shareable.attested = attestedProjection(c.attested)
-  if (c.enrichment) shareable.enrichment = enrichmentProjection(c.enrichment, Boolean(c.unconfirmed))
+  // Match the FOLD's rule: the narrative argues for a refused EMPLOYER or TITLE.
+  // Location-only refusals are common and say nothing about the job.
+  if (c.enrichment)
+    shareable.enrichment = enrichmentProjection(c.enrichment, Boolean(c.unconfirmed?.employer || c.unconfirmed?.profession))
   return JSON.stringify(cleanRecord(shareable), null, 2)
 }
 

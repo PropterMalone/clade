@@ -305,7 +305,11 @@ private-data lexicon actually requires.
    it to build a networked layer. It answers a different question (what the
    owner's own assistant may read) and deliberately contains `emails`, `phones`,
    `notes` and `attested`, four things this section calls hold-back. What it does
-   enforce is the ADR-10 address split *at the MCP seam*, pinned by a leak test —
+   enforce is the ADR-10 address split *at the MCP seam*, pinned by a leak test. It
+   serves `attested` as a `relationship`/`context`/`domains`/`location`/
+   `corroboration` PROJECTION with `realName` stripped — though note an attested
+   realName still reaches the seam via the top-level `name` it is folded into,
+   which is what `nameSource` exists to let a remote deployment filter on —
    a whole-entry serializer being exactly where a per-field rule dies if nothing
    checks it. A future networked build re-derives its payload from the whitelist
    above, per field, as §5.3 already requires of the merged index.
