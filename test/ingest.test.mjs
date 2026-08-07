@@ -179,9 +179,9 @@ EMAIL;type=INTERNET;type=WORK:jane.wilson@deloitte.com
 TEL;type=CELL;type=VOICE;type=pref:+1 (555) 123-4567
 item2.URL;type=pref:https://janewilson.example
 X-SOCIALPROFILE;type=twitter:https://twitter.com/janeqw
-item3.ADR;type=HOME;type=pref:;Apt 4;1400 Sherman Ave\, Rear;Evanston;IL;60201;USA
+item3.ADR;type=HOME;type=pref:;Apt 4;1400 Kestrel Ave\, Rear;Evanston;IL;60201;USA
 item3.X-ABLabel:_$!<Home>!$_
-ADR;type=WORK:;Suite 900;111 S Wacker
+ADR;type=WORK:;Suite 900;222 S Marlin
  Dr;Chicago;IL;60606;USA
 NOTE:Met at the\, conference; loves\n dogs
 PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQSkZJRgABAQEAYABgAAD/aaaaaaaaaaaaaaaa
@@ -271,7 +271,7 @@ test('vcardRecords parses ADR: itemN prefix, escaped comma, folding, type, both 
     {
       type: 'home',
       extended: 'Apt 4',
-      street: '1400 Sherman Ave, Rear', // \, unescaped, and the ; components did not shift
+      street: '1400 Kestrel Ave, Rear', // \, unescaped, and the ; components did not shift
       city: 'Evanston',
       region: 'IL',
       postal: '60201',
@@ -280,7 +280,7 @@ test('vcardRecords parses ADR: itemN prefix, escaped comma, folding, type, both 
     {
       type: 'work',
       extended: 'Suite 900',
-      street: '111 S WackerDr', // the fold marker is removed, not turned into a space (RFC 6350)
+      street: '222 S MarlinDr', // the fold marker is removed, not turned into a space (RFC 6350)
       city: 'Chicago',
       region: 'IL',
       postal: '60606',
@@ -320,22 +320,22 @@ test('googleContactsRecords reads Address 1..3 columns and derives location', as
     'Address 2 - Type,Address 2 - Street,Address 2 - City,Address 2 - Region,Address 2 - Postal Code,Address 2 - Country',
   ].join(',')
   const rows = [
-    'Sam,,Whitfield,,sam@x.edu,Home,"1400 Sherman Ave, Evanston, IL 60201",,Apt 4,1400 Sherman Ave,Evanston,IL,60201,USA,Work,111 S Wacker Dr,Chicago,IL,60606,USA',
+    'Sam,,Whitfield,,sam@x.edu,Home,"1400 Kestrel Ave, Evanston, IL 60201",,Apt 4,1400 Kestrel Ave,Evanston,IL,60201,USA,Work,222 S Marlin Dr,Chicago,IL,60606,USA',
     'Robin,,Vasquez,,robin@y.org,,,,,,,,,,,,,,,', // no address at all
   ].join('\n')
   const { records } = googleContactsRecords(`${header}\n${rows}`)
   assert.deepEqual(records[0].addresses, [
     {
       type: 'home', // normalized: the CSV ships "Home", vCard ships "HOME"
-      formatted: '1400 Sherman Ave, Evanston, IL 60201',
+      formatted: '1400 Kestrel Ave, Evanston, IL 60201',
       extended: 'Apt 4',
-      street: '1400 Sherman Ave',
+      street: '1400 Kestrel Ave',
       city: 'Evanston',
       region: 'IL',
       postal: '60201',
       country: 'USA',
     },
-    { type: 'work', street: '111 S Wacker Dr', city: 'Chicago', region: 'IL', postal: '60606', country: 'USA' },
+    { type: 'work', street: '222 S Marlin Dr', city: 'Chicago', region: 'IL', postal: '60606', country: 'USA' },
   ])
   assert.equal(records[0].location, 'Evanston, IL')
   assert.deepEqual(records[1].addresses, [], 'a row with empty address columns emits no address')

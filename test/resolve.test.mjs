@@ -537,8 +537,8 @@ test('an accepted enrichment keeps its narrative in notes as before', () => {
 
 // --- location + addresses (ADR-10) ---------------------------------------------
 
-const ADDR_EV = { type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }
-const ADDR_CHI = { type: 'work', street: '111 S Wacker Dr', city: 'Chicago', region: 'IL', postal: '60606' }
+const ADDR_EV = { type: 'home', street: '1400 Kestrel Ave', city: 'Evanston', region: 'IL', postal: '60201' }
+const ADDR_CHI = { type: 'work', street: '222 S Marlin Dr', city: 'Chicago', region: 'IL', postal: '60606' }
 
 test('fold unions addresses across a merged person and dedupes identical ones', () => {
   const folded = foldGroup(
@@ -656,11 +656,11 @@ test('a rejected web location is NOT written into the searchable notes field', (
 
 test('a formatted-only address survives the fold (Google allows one with no components)', () => {
   const folded = foldGroup(
-    [rec('google-contacts:f', 'Dana Fox', { addresses: [{ type: 'home', formatted: '1400 Sherman Ave, Evanston, IL 60201' }] })],
+    [rec('google-contacts:f', 'Dana Fox', { addresses: [{ type: 'home', formatted: '1400 Kestrel Ave, Evanston, IL 60201' }] })],
     {},
   )
   assert.equal(folded.addresses.length, 1, 'the record\'s only address must not vanish between ingest and index')
-  assert.equal(folded.addresses[0].formatted, '1400 Sherman Ave, Evanston, IL 60201')
+  assert.equal(folded.addresses[0].formatted, '1400 Kestrel Ave, Evanston, IL 60201')
 })
 
 test('a type-only address object is still dropped', () => {
@@ -669,8 +669,8 @@ test('a type-only address object is still dropped', () => {
 })
 
 test('dedup ignores `type` — one export labels the home, the other says nothing', () => {
-  const home = { type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL' }
-  const untyped = { street: '1400 Sherman Ave', city: 'Evanston', region: 'IL' }
+  const home = { type: 'home', street: '1400 Kestrel Ave', city: 'Evanston', region: 'IL' }
+  const untyped = { street: '1400 Kestrel Ave', city: 'Evanston', region: 'IL' }
   const folded = foldGroup(
     [rec('vcard:a', 'Dana Fox', { addresses: [home] }), rec('google-contacts:b', 'Dana Fox', { addresses: [untyped] })],
     {},
@@ -703,7 +703,7 @@ test('a refused LOCATION does not blank the enrichment narrative out of notes', 
 // is where the shareable grade is constituted. A value banked before a guard
 // existed must not reach the export, the seam, or a prompt.
 test('a street-shaped location is dropped at fold time, whatever its origin', () => {
-  const street = '1400 Sherman Ave, Evanston, IL 60201'
+  const street = '1400 Kestrel Ave, Evanston, IL 60201'
   const attested = foldGroup([rec('vcard:s1', 'Dana Fox')], { attested: { 'vcard:s1': { location: street } } })
   assert.equal(attested.location, '', 'a legacy attested street address must not become the shareable grade')
   assert.equal(attested.locationSource, '')

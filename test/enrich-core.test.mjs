@@ -445,7 +445,7 @@ const ADDRESSED = {
   location: 'Evanston, IL',
   linkedinUrl: 'https://linkedin.com/in/jw',
   urls: ['https://linkedin.com/in/jw'],
-  addresses: [{ type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
+  addresses: [{ type: 'home', street: '1400 Kestrel Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
 }
 
 // ADR-08: owner-attested and address-book-derived facts may NOT share a batched
@@ -476,7 +476,7 @@ test('the confirm block still carries its LinkedIn identity anchor', () => {
 
 test('the street address never reaches a prompt, in either tier', () => {
   for (const [tier, prompt] of [['solo', buildPrompt(ADDRESSED)], ['confirm', buildConfirmBatchPrompt([ADDRESSED])]])
-    for (const secret of ['1400 Sherman Ave', '60201'])
+    for (const secret of ['1400 Kestrel Ave', '60201'])
       assert.ok(!prompt.includes(secret), `${tier} prompt leaked a hold-back address component: ${secret}`)
 })
 
@@ -505,12 +505,12 @@ test('validateEnrichment keeps location, caps it, and drops non-answer placehold
 // trusted to honour that from a prompt sentence alone — least of all a
 // third-party one behind CLADE_AGENT_CMD.
 for (const street of [
-  '1400 Sherman Ave, Evanston, IL 60201',
-  '111 S Wacker Dr',
+  '1400 Kestrel Ave, Evanston, IL 60201',
+  '222 S Marlin Dr',
   'Apt 4, Evanston, IL',
   'Evanston, IL 60201',
   'PO Box 12, Evanston, IL',
-  '1400 Sherman Ave Suite 900',
+  '1400 Kestrel Ave Suite 900',
 ]) {
   test(`a street-shaped location is refused: ${JSON.stringify(street)}`, () => {
     assert.equal(validateEnrichment({ location: street, confidence: 'high' }).location, '')

@@ -31,7 +31,7 @@ whatever raw export landed in `imports/`. Shape:
       "addresses": [
         {
           "type": "home",
-          "street": "1400 Sherman Ave",
+          "street": "1400 Kestrel Ave",
           "extended": "Apt 4",
           "city": "Evanston",
           "region": "IL",
@@ -197,7 +197,7 @@ Array of person entries:
   "profession": "Strategy consultant",
   "employer": "Deloitte",
   "location": "Evanston, IL",
-  "addresses": [{ "type": "home", "street": "1400 Sherman Ave", "city": "Evanston", "region": "IL", "postal": "60201" }],
+  "addresses": [{ "type": "home", "street": "1400 Kestrel Ave", "city": "Evanston", "region": "IL", "postal": "60201" }],
   "domains": ["healthcare strategy", "m&a"],
   "roles": ["senior manager, strategy"],
   "labels": [],

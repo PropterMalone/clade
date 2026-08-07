@@ -13,7 +13,7 @@ const ADDRESSED = {
   profession: 'Nurse Practitioner',
   employer: 'Evanston Health',
   location: 'Evanston, IL',
-  addresses: [{ type: 'home', street: '1400 Sherman Ave', extended: 'Apt 4', city: 'Evanston', region: 'IL', postal: '60201' }],
+  addresses: [{ type: 'home', street: '1400 Kestrel Ave', extended: 'Apt 4', city: 'Evanston', region: 'IL', postal: '60201' }],
   emails: ['jane@example.com'],
   domains: ['nursing'],
   labels: [],
@@ -23,8 +23,23 @@ const ADDRESSED = {
 
 test('the exported block never carries a street address', () => {
   const out = contactBlock(ADDRESSED)
-  for (const secret of ['1400 Sherman Ave', 'Apt 4', '60201', 'addresses'])
+  for (const secret of ['1400 Kestrel Ave', 'Apt 4', '60201', 'addresses'])
     assert.ok(!out.includes(secret), `Project export leaked hold-back address data: ${secret}`)
+})
+
+// The OTHER hold-back that could plausibly be added to this hand-built parts
+// list, because "real name: X" reads like a helpful addition. schema §5.2 and
+// ADR-04: the persona -> real-identity bridge never leaves local custody, and
+// this file is uploaded wholesale to a third party.
+test('the exported block never carries the realName bridge', () => {
+  const out = contactBlock({
+    name: 'jaydub',
+    handles: { bluesky: 'jaydub.bsky.social' },
+    attested: { relationship: 'cousin', context: 'kickball league', realName: 'Jane Wilson Emerson' },
+  })
+  assert.ok(!out.includes('Jane Wilson Emerson'), 'unmasking a pseudonymous contact must not be exported')
+  assert.ok(!out.includes('realName'))
+  assert.match(out, /cousin/, 'the rest of the attested entry still exports')
 })
 
 test('the exported block DOES carry the locality — the query it exists to answer', () => {

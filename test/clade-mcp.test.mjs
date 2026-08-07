@@ -179,7 +179,7 @@ const ADDRESSED_INDEX = [
     profession: 'Nurse Practitioner',
     employer: 'Evanston Health',
     location: 'Evanston, IL',
-    addresses: [{ type: 'home', street: '1400 Sherman Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
+    addresses: [{ type: 'home', street: '1400 Kestrel Ave', city: 'Evanston', region: 'IL', postal: '60201' }],
     domains: ['nursing'],
     labels: [],
     tier: 'vcard-only',
@@ -188,7 +188,7 @@ const ADDRESSED_INDEX = [
   },
 ]
 
-const SECRETS = ['1400 Sherman Ave', '60201', 'addresses']
+const SECRETS = ['1400 Kestrel Ave', '60201', 'addresses']
 
 test('no MCP surface leaks a street address', () => {
   const surfaces = {

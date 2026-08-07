@@ -203,7 +203,7 @@ const dropNonAnswer = (s) => (s && !isNonAnswer(s) ? s : '')
 //
 // Signals, chosen to avoid the obvious false positives — a bare street-type word
 // is NOT one, because "St. Louis, MO" and "Lake Placid, NY" are cities:
-//   1. a leading house number ("1400 Sherman Ave", "111 S Wacker Dr")
+//   1. a leading house number ("1400 Kestrel Ave", "222 S Marlin Dr")
 //   2. a unit designator (Apt 4, Suite 900, Ste 2, Unit B, PO Box 12, #4)
 //   3. a US ZIP — narrower than a city, so it belongs on the hold-back side
 // Fails CLOSED: "29 Palms, CA" is refused and the export value stands. That costs
