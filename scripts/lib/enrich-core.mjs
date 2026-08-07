@@ -196,7 +196,7 @@ const dropNonAnswer = (s) => (s && !isNonAnswer(s) ? s : '')
 // travel where the street address may not. Ingest guarantees that (deriveLocation
 // can only emit `city[, qualifier]`); a model — possibly a third-party one behind
 // CLADE_AGENT_CMD — cannot be, and neither can a hand-typed `attest --location`.
-// Without this check the only thing standing between a returned "1400 Sherman
+// Without this check the only thing standing between a returned "1400 Kestrel
 // Ave, Evanston, IL 60201" and the claude.ai Project export was a sentence in a
 // prompt (review 2026-08-06). Every other model-controlled field with a shape is
 // already validated: linkedinUrl by regex, confidence by enum, expertise by cap.
