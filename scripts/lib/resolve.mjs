@@ -12,6 +12,7 @@
 // groups (review C1).
 
 import { looksLikeStreetAddress } from './enrich-core.mjs'
+import { deriveLocation } from './ingest.mjs'
 
 // --- normalizers ------------------------------------------------------------
 
@@ -590,10 +591,18 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   // the agreement test is locality-aware (`locationsConflict`), and an empty
   // first-party value does NOT hand the field to any-confidence research.
   const locationPick = pickRecordField(group, 'location')
+  // `deriveLocation`'s home-beats-work rule only holds WITHIN one record;
+  // `pickRecordField` ranks the address-book sources equally and tie-breaks on an
+  // empty connectedOn, so argument order decided which city a merged person got.
+  // Re-deriving across the merged address union makes the rule global. A `manual`
+  // quick-add still wins — the owner typed it today, and FIELD_SOURCE_RANK
+  // already says so; this only settles the address-book tie.
+  const manualLocation = group.find((r) => r.source === 'manual' && r.location)?.location || ''
+  const firstPartyLocation = manualLocation || deriveLocation(addressUnion(group)) || locationPick.value
   const webLocation = String(enrich?.location || '').trim()
   const locationChoice = preferExportOnConflict({
     web: enrich?.location,
-    own: locationPick.value,
+    own: firstPartyLocation,
     alternates: locationPick.alternates,
     confidence: enrich?.confidence,
     stopwords: LOCATION_STOPWORDS,
@@ -601,7 +610,22 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   })
   let location = locationChoice.value
   let rejectedLocation = locationChoice.rejected
-  let locationSource = location ? (location === webLocation ? 'enrichment' : 'raw-address') : ''
+  // NEW-SOURCE ENROLLMENT POINT. `first-party` means "came from the owner's own
+  // records" — an address book, a quick-add, any export — NOT "there is a street
+  // address behind it". Origin comes from HOW the value won, never from what it
+  // equals: a web value that merely MATCHES an owner-custody value is a
+  // coincidence of string, usually the model echoing the labelled location line
+  // the solo prompt handed it. ADR-08 classifies by custody, so labelling that
+  // `enrichment` would clear it for a shared confirm batch — the exact disclosure
+  // this field exists to stop. Fails CLOSED: anything not provably public-web is
+  // owner-custody. Consequence when adding a source: a genuinely SELF-PUBLISHED
+  // public location (an X/Twitter profile `location`) lands in `first-party` by
+  // default and is silently barred from the confirm tier. Register it here.
+  const webWonOnItsOwnEvidence =
+    Boolean(webLocation) &&
+    location === webLocation &&
+    (!firstPartyLocation || locationsConflict(webLocation, firstPartyLocation))
+  let locationSource = location ? (webWonOnItsOwnEvidence ? 'enrichment' : 'first-party') : ''
   // An empty first-party location is the DOMINANT case, not the edge case:
   // LinkedIn, Facebook and Bluesky all emit `location: ''` by construction, so
   // most of a real corpus takes the empty branch. `preferExportOnConflict` hands
@@ -611,7 +635,7 @@ export function foldGroup(group, { enrichments = {}, attested = {} } = {}) {
   // life-history prior, and the prompt bars the prior from a search QUERY but not
   // from the ANSWER — so a low-confidence miss can mirror the owner's own era
   // cities back onto named strangers. Require medium+ to claim an empty field.
-  if (!locationPick.value && webLocation && !['high', 'medium'].includes(enrich?.confidence)) {
+  if (!firstPartyLocation && webLocation && !['high', 'medium'].includes(enrich?.confidence)) {
     location = ''
     locationSource = ''
     rejectedLocation = webLocation

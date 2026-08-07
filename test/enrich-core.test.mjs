@@ -452,7 +452,7 @@ const ADDRESSED = {
 // session. `location` has three origins and only `enrichment` is public-web, so
 // the shared confirm block is gated on origin — not on the field name.
 test('an owner-custody location reaches the solo prompt but NOT a shared confirm block', () => {
-  const owned = { ...ADDRESSED, locationSource: 'raw-address' }
+  const owned = { ...ADDRESSED, locationSource: 'first-party' }
   assert.match(buildPrompt(owned), /Evanston, IL/)
   assert.ok(!buildConfirmBatchPrompt([owned]).includes('Evanston, IL'), 'address-book locality must not enter a 4-contact session')
 
@@ -467,11 +467,11 @@ test('a web-derived location DOES reach the shared confirm block — it is alrea
 })
 
 test('an owner-custody location is labelled as the owner\'s own possibly-stale record', () => {
-  assert.match(buildPrompt({ ...ADDRESSED, locationSource: 'raw-address' }), /location \(from the owner's own records, may be stale\)/)
+  assert.match(buildPrompt({ ...ADDRESSED, locationSource: 'first-party' }), /location \(from the owner's own records, may be stale\)/)
 })
 
 test('the confirm block still carries its LinkedIn identity anchor', () => {
-  assert.match(buildConfirmBatchPrompt([{ ...ADDRESSED, locationSource: 'raw-address' }]), /linkedin\.com\/in\/jw/)
+  assert.match(buildConfirmBatchPrompt([{ ...ADDRESSED, locationSource: 'first-party' }]), /linkedin\.com\/in\/jw/)
 })
 
 test('the street address never reaches a prompt, in either tier', () => {

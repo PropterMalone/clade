@@ -19,7 +19,7 @@ enrichment prompts. The hold-back is enforced by **field allow-lists plus leak
 tests** (`MCP_SERVED_FIELDS` in `clade-mcp.mjs`, `contactBlock` in
 `export-knowledge.mjs`, both pinned by tests), not by a documented convention.
 
-`location` carries an ORIGIN (`locationSource`: `raw-address` | `attested` |
+`location` carries an ORIGIN (`locationSource`: `first-party` | `attested` |
 `enrichment`) and the origin gates one specific egress: only an `enrichment`
 (public-web) locality may enter a *batched* confirm-tier session. A city derived
 from the owner's private address book, or one the owner attested, is owner-custody

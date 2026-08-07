@@ -634,7 +634,7 @@ for (const [own, web, why] of [
       enrichments: { 'vcard:c': { location: web, confidence: 'medium' } },
     })
     assert.equal(folded.location, own)
-    assert.equal(folded.locationSource, 'raw-address')
+    assert.equal(folded.locationSource, 'first-party')
     assert.equal(folded.unconfirmed.location, web, 'the refused claim must be auditable')
   })
 }

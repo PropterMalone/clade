@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { contactBlock, skipReason } from '../scripts/export-knowledge.mjs'
+import { knowledgeBlock, skipReason } from '../scripts/export-knowledge.mjs'
 
 const ADDRESSED = {
   name: 'Jane Wilson',
@@ -22,7 +22,7 @@ const ADDRESSED = {
 }
 
 test('the exported block never carries a street address', () => {
-  const out = contactBlock(ADDRESSED)
+  const out = knowledgeBlock(ADDRESSED)
   for (const secret of ['1400 Kestrel Ave', 'Apt 4', '60201', 'addresses'])
     assert.ok(!out.includes(secret), `Project export leaked hold-back address data: ${secret}`)
 })
@@ -32,7 +32,7 @@ test('the exported block never carries a street address', () => {
 // ADR-04: the persona -> real-identity bridge never leaves local custody, and
 // this file is uploaded wholesale to a third party.
 test('the exported block never carries the realName bridge', () => {
-  const out = contactBlock({
+  const out = knowledgeBlock({
     name: 'jaydub',
     handles: { bluesky: 'jaydub.bsky.social' },
     attested: { relationship: 'cousin', context: 'kickball league', realName: 'Jane Wilson Emerson' },
@@ -43,20 +43,20 @@ test('the exported block never carries the realName bridge', () => {
 })
 
 test('the exported block DOES carry the locality — the query it exists to answer', () => {
-  assert.match(contactBlock(ADDRESSED), /Evanston, IL/)
+  assert.match(knowledgeBlock(ADDRESSED), /Evanston, IL/)
 })
 
 test('the exported block is an allow-list: an unknown new field does not ride along', () => {
-  const out = contactBlock({ ...ADDRESSED, interactions: { lastCall: 'NDA executed, 50 min' } })
+  const out = knowledgeBlock({ ...ADDRESSED, interactions: { lastCall: 'NDA executed, 50 min' } })
   assert.ok(!out.includes('NDA executed'))
 })
 
 test('a contact with nothing to say still renders', () => {
-  assert.equal(contactBlock({ name: 'Chidi Okafor' }), '(no details yet)')
+  assert.equal(knowledgeBlock({ name: 'Chidi Okafor' }), '(no details yet)')
 })
 
 test('control characters are stripped — this file is read as trusted knowledge', () => {
-  const out = contactBlock({ ...ADDRESSED, notes: `trust me${String.fromCharCode(27)}[31m${String.fromCharCode(155)}6n` })
+  const out = knowledgeBlock({ ...ADDRESSED, notes: `trust me${String.fromCharCode(27)}[31m${String.fromCharCode(155)}6n` })
   assert.ok(!out.includes(String.fromCharCode(27)))
   assert.ok(!out.includes(String.fromCharCode(155)))
 })

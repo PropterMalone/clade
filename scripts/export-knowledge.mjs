@@ -39,7 +39,7 @@ const line = (s) => clean(s, 1000).replace(/\s+/g, ' ').trim()
 // project — and until 2026-08-06 it was the one ADR-10 egress path guarded by a
 // comment rather than a test, while the schema doc asserted it was enforced. It
 // is an explicit allow-list by construction; the test is what keeps it one.
-export function contactBlock(c) {
+export function knowledgeBlock(c) {
   const parts = []
   const prof = [c.profession, c.employer].filter(Boolean).join(' at ')
   if (prof) parts.push(prof)
@@ -81,7 +81,7 @@ function main() {
       continue
     }
     lines.push(`## ${line(c.name)}`)
-    lines.push(contactBlock(c))
+    lines.push(knowledgeBlock(c))
     lines.push('')
   }
 

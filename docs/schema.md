@@ -230,7 +230,7 @@ Array of person entries:
   "Ford Motor Company" and "Acme Company" DISAGREE. Comparison fails closed: a
   value that tokenizes to nothing (a non-Latin employer) counts as disagreement,
   keeping first-party data. See ADR-09.
-- `locationSource`: `raw-address` | `attested` | `enrichment` | `""` — where the
+- `locationSource`: `first-party` | `attested` | `enrichment` | `""` — where the
   winning `location` came from, mirroring `nameSource`. Load-bearing, not
   decoration: only an `enrichment` (public-web) locality may ride in a BATCHED
   confirm-tier enrichment session, because ADR-08 forbids owner-attested facts in
