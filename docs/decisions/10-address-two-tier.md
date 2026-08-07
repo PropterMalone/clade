@@ -68,6 +68,52 @@ back with a denylist of forbidden fields rather than an allow-list of permitted
 ones — it reads as the smaller change, but it keeps blanket serialization as the
 default and so keeps the silent-leak failure mode for the *next* field.
 
+**Rejected alternative — the addresses sidecar** (raised twice in review; recorded
+here so it is not re-litigated a third time). Split the FILE, not just the field:
+have `build-index.mjs` write `addresses` to `contacts/addresses.json`, keyed by
+the durable `keys[]`, and leave it out of `unified-index.json` entirely. The
+operating session joins the two files when the owner asks for an address. This
+is the decision above pushed to its conclusion, and the case for it is real: it
+makes every consumer of the index safe **by absence** rather than by an allow-list
+each one has to get right, and it retires a standing per-consumer obligation that
+this ADR otherwise leaves in place forever. It costs roughly what the allow-list
+already costs.
+
+Rejected on three grounds, in descending weight:
+
+1. **It does not do what it appears to do.** The street addresses are in
+   `contacts/normalized/*.json` too, straight from ingest. In Cloud mode the
+   owner removes the data-ignore block and commits `contacts/` wholesale, so the
+   street data is in the git tree either way. A sidecar protects the *index*, not
+   the *data* — and it would read as protecting the data, which is worse than not
+   having it.
+2. **The precedent is split, and the divergence is in the half that costs.**
+   ADR-08 already stores its strictest class separately (`contacts/interactions/*.json`)
+   — so separate storage is the incumbent pattern and this alternative is not
+   novel there. What ADR-08 does *not* do is hide the class from the record: it
+   surfaces it as one nested, droppable key. The sidecar's actual novelty is
+   declining to surface, which taxes the single query the hold-back exists to
+   serve ("what's Jane's address?") with a join, on the one reader who is
+   authorized.
+3. **Scope.** It changes a generated file's shape and the private instance's
+   read path, for a benefit that today is entirely prospective.
+
+**What it would have won, and what that leaves open.** Exactly one axis, and it
+is not hypothetical: the class B/C index push. `docs/mcp-kit.md` requires a
+refresh to push "a **filtered** copy — the allow-listed fields only, never the
+whole file," and the repo ships no such filter and does not export
+`MCP_SERVED_FIELDS` for a deployer to reuse. So for a remote deployment the
+default action — push `unified-index.json` — moves the most sensitive field in
+the corpus onto third-party infrastructure, and the only thing preventing it is
+the documented convention this ADR says it refuses to rely on. That is the
+weakest point of the shipped shape and it is prose-only.
+
+**Revisit trigger**: the first time anyone actually runs deployment class B or C.
+The cheaper fix to reach for first is not the sidecar but the missing tooling —
+export `MCP_SERVED_FIELDS` and ship a served-index emitter applying the same
+projections, so "filtered copy" is a command rather than an instruction. Reach
+for the sidecar only if that tooling proves insufficient in practice.
+
 **Could-be-wrong-if**: `{name, location}` turns out to recover the street address
 as reliably as publishing it would. This is the falsifier that matters, and an
 earlier draft of it was **vacuous** — it thresholded on town population (~5% of
