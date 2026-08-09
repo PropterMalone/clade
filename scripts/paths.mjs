@@ -195,10 +195,27 @@ export function dataPathContained(userPath) {
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`Refusing target outside the data root: ${userPath}`)
   }
-  const posixRel = rel.split(sep).join('/')
-  const refusal = UNWRITABLE_DATA_FILES.get(posixRel)
-  if (refusal) {
-    throw new Error(`Refusing to overwrite ${posixRel} wholesale — ${refusal}.`)
-  }
+  assertWritableTarget(abs)
   return abs
+}
+
+// Refuse a managed file as a write target, whatever path form names it. Call
+// this on ANY user-supplied destination, including absolute ones that
+// deliberately point outside the data root.
+//
+// Three times in one review this guard was added to one path and missed on a
+// sibling: first data-write.mjs but not cue-tag, then cue-tag's relative branch
+// but not its `if (isAbsolute(v)) return v` branch one line above. Each miss
+// left the same capability intact — replacing the owner's attested facts with a
+// proposals envelope, exit 0, "Wrote …". So the check keys on the RESOLVED
+// basename rather than on one spelling of one path, and every caller funnels
+// here. Matching by basename also refuses a path aimed at a DIFFERENT Clade
+// instance's overlays, which the data-root-relative test alone cannot see.
+export function assertWritableTarget(absTarget) {
+  const name = absTarget.split(sep).pop()
+  for (const [managed, remedy] of UNWRITABLE_DATA_FILES) {
+    if (managed.split('/').pop() === name) {
+      throw new Error(`Refusing to overwrite ${name} wholesale — ${remedy}.`)
+    }
+  }
 }

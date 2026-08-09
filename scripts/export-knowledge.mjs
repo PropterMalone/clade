@@ -10,9 +10,10 @@
 // including the mobile app — becomes the query engine. Re-export and replace
 // the Project file after enrichment or triage sessions.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { clean, isKeyShapedName } from './lib/enrich-core.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const INDEX_PATH = dataPath('contacts/unified-index.json')
@@ -93,7 +94,7 @@ function main() {
     'Each entry: who they are, what they do, how the owner knows them.',
     '',
   ]
-  writeFileSync(OUT_PATH, [...header, ...lines].join('\n'))
+  atomicWriteFileSync(OUT_PATH, [...header, ...lines].join('\n'))
   const kb = (Buffer.byteLength([...header, ...lines].join('\n')) / 1024).toFixed(0)
   const skipDetail = Object.entries(skipped).filter(([, n]) => n > 0).map(([r, n]) => `${n} ${r}`).join(', ')
   console.log(`Wrote ${OUT_PATH} — ${index.length - totalSkipped} contacts (skipped: ${skipDetail || 'none'}), ${kb} KB`)

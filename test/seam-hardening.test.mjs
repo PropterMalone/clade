@@ -17,11 +17,12 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { atomicWriteFileSync } from '../scripts/overlay-write.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const node = process.execPath
@@ -99,6 +100,99 @@ test('concurrent attest.mjs calls all survive (no lost update)', async () => {
   }
 })
 
+test('sustained contention loses no updates', async () => {
+  // The one-shot test above cannot see a broken lock: ~50ms of node startup
+  // jitter staggers the acquisitions, so the narrow window inside lock
+  // ACQUISITION is almost never hit, and a lock that admits two holders still
+  // passes it. (Measured: with the lock surgically removed, the 12-shot test
+  // still went green about 1 run in 7.) This drives updateJsonFile in a loop
+  // instead, which produces continuous contention and fails near-deterministically.
+  const dir = freshDataDir()
+  try {
+    const target = join(dir, 'contacts/counter.json')
+    const W = 6
+    const C = 50
+    const results = await Promise.all(
+      Array.from({ length: W }, (_, i) =>
+        new Promise((resolveP, rejectP) => {
+          const p = spawn(node, [join(ROOT, 'test/lock-worker.mjs'), target, String(i), String(C)], {
+            cwd: ROOT,
+            env: { ...process.env, CLADE_DATA_DIR: dir },
+          })
+          let stderr = ''
+          p.stderr.on('data', (d) => { stderr += d })
+          p.on('error', rejectP)
+          p.on('close', (code) => resolveP({ code, stderr }))
+        }),
+      ),
+    )
+    const failed = results.filter((r) => r.code !== 0)
+    assert.equal(failed.length, 0, `workers should all succeed: ${failed.map((f) => f.stderr).join('; ')}`)
+    const keys = Object.keys(JSON.parse(readFileSync(target, 'utf8')))
+    assert.equal(keys.length, W * C, `every locked update must survive: lost ${W * C - keys.length} of ${W * C}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a lock left behind by a dead process is reaped', () => {
+  // Without this, one crash mid-attest bricks every later overlay write: each
+  // one waits out the full retry budget and then errors. Nothing covered the
+  // reap path, so inverting its ESRCH check kept the suite green.
+  const dir = freshDataDir()
+  try {
+    run('scripts/attest.mjs', ['--key', 'manual:first', '--relationship', 'x'], dir)
+    const deadPid = spawnSync(node, ['-e', 'process.exit(0)']).pid
+    writeFileSync(join(dir, 'contacts/attested.json.lock'), String(deadPid))
+
+    const r = run('scripts/attest.mjs', ['--key', 'manual:second', '--relationship', 'y'], dir)
+    assert.equal(r.status, 0, `a stale lock must be reaped, not waited out: ${r.stderr}`)
+    const entries = JSON.parse(readFileSync(join(dir, 'contacts/attested.json'), 'utf8')).entries
+    assert.ok(entries['manual:second'], 'the write should have gone through')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('atomicWriteFileSync replaces the file rather than truncating it in place', () => {
+  // The discriminating observation: rename() swaps in a NEW inode, while a plain
+  // writeFileSync truncates and rewrites the SAME one. Without this, the whole
+  // primitive could be reverted to writeFileSync and all 277 tests still passed
+  // — the "no temp files left behind" test is one-sided, since a plain write
+  // leaves none either.
+  const dir = freshDataDir()
+  try {
+    const target = join(dir, 'sample.json')
+    atomicWriteFileSync(target, 'first\n')
+    const before = statSync(target).ino
+    atomicWriteFileSync(target, 'second\n')
+    assert.notEqual(statSync(target).ino, before, 'the target must be replaced by rename, not rewritten in place')
+    assert.equal(readFileSync(target, 'utf8'), 'second\n')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('overlay and index writers never call a bare writeFileSync', () => {
+  // Pins the CALL SITES, complementing the inode check above which pins the
+  // primitive. Either half can regress independently.
+  const violations = []
+  for (const f of [
+    'scripts/attest.mjs',
+    'scripts/record-merge.mjs',
+    'scripts/cue-tag.mjs',
+    'scripts/data-write.mjs',
+    'scripts/build-index.mjs',
+    'scripts/export-knowledge.mjs',
+  ]) {
+    readFileSync(join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
+      if (line.trimStart().startsWith('//')) return
+      if (/\bwriteFileSync\(/.test(line)) violations.push(`${f}:${i + 1}: ${line.trim()}`)
+    })
+  }
+  assert.deepEqual(violations, [], `these must write through atomicWriteFileSync:\n${violations.join('\n')}`)
+})
+
 test('attest.mjs works against a fresh data dir (creates contacts/)', () => {
   // dataRoot()'s own error text promises "subdirectories like contacts/ are made
   // automatically" — attest.mjs and record-merge.mjs did not, and died on ENOENT.
@@ -150,13 +244,18 @@ test('cue-tag --proposals refuses the helper-managed and generated files too', (
     run('scripts/attest.mjs', ['--key', 'manual:precious', '--relationship', 'irreplaceable'], dir)
     const before = readFileSync(attested, 'utf8')
 
-    const r = run('scripts/cue-tag.mjs', ['--proposals', 'contacts/attested.json', '--cue', 'x', '--tag', 'y', '--force'], dir)
-    assert.notEqual(r.status, 0, 'pointing --proposals at a managed overlay must be refused')
-    // Assert on the REASON, not just the exit code: cue-tag has several other
-    // ways to exit nonzero (no index, no cue), any of which would let this test
-    // pass while the guard was gone.
-    assert.match(r.stderr, /Refusing to overwrite contacts\/attested\.json wholesale/)
-    assert.equal(readFileSync(attested, 'utf8'), before, 'the attested overlay must be untouched')
+    // BOTH path forms. The guard first shipped on the relative branch only,
+    // while `if (isAbsolute(v)) return v` sat one line above it and skipped the
+    // check entirely — the same miss, one line higher, found by the next review.
+    for (const form of ['contacts/attested.json', attested]) {
+      const r = run('scripts/cue-tag.mjs', ['--proposals', form, '--cue', 'x', '--tag', 'y', '--force'], dir)
+      assert.notEqual(r.status, 0, `pointing --proposals at a managed overlay must be refused (${form})`)
+      // Assert on the REASON, not just the exit code: cue-tag has several other
+      // ways to exit nonzero (no index, no cue), any of which would let this
+      // test pass while the guard was gone.
+      assert.match(r.stderr, /Refusing to overwrite attested\.json wholesale/)
+      assert.equal(readFileSync(attested, 'utf8'), before, `the attested overlay must be untouched (${form})`)
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

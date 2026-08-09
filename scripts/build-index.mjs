@@ -13,10 +13,11 @@
 // All resolution/folding logic lives in scripts/lib/resolve.mjs (pure,
 // unit-tested); this file only does file IO and reporting.
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { validateEnrichment } from './lib/enrich-core.mjs'
 import { unwrapDecisions, unwrapEntries } from './lib/envelope.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
 import { buildIndex } from './lib/resolve.mjs'
 import { dataPath } from './paths.mjs'
 
@@ -95,8 +96,12 @@ function main() {
     return
   }
 
-  writeFileSync(OUT_PATH, JSON.stringify(out.unified, null, 2))
-  writeFileSync(CANDIDATES_PATH, JSON.stringify(out.candidates, null, 2))
+  // Atomic: clade-mcp.mjs re-reads the index on EVERY tool call by design, and
+  // enrich-batch respawns this script after each wave — so a plain truncating
+  // write gives a live server a window to parse a half-written file, and a crash
+  // mid-rebuild leaves a truncated index behind.
+  atomicWriteFileSync(OUT_PATH, JSON.stringify(out.unified, null, 2))
+  atomicWriteFileSync(CANDIDATES_PATH, JSON.stringify(out.candidates, null, 2))
 
   const tiers = {}
   const confidences = {}

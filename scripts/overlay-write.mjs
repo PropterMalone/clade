@@ -26,15 +26,23 @@
 import {
   closeSync,
   existsSync,
+  fsyncSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
+
+// A held lock older than this is treated as abandoned. Critical sections here
+// are single-digit milliseconds, so a minute is far beyond any legitimate hold
+// and still short enough that a crash doesn't strand the operator.
+const STALE_LOCK_MS = 60_000
 
 // Write via a sibling temp file + rename. rename(2) is atomic on the same
 // filesystem, and the temp always sits beside the target, so it never crosses a
@@ -44,7 +52,18 @@ export function atomicWriteFileSync(target, content) {
   mkdirSync(dirname(target), { recursive: true })
   const tmp = `${target}.tmp-${process.pid}`
   try {
-    writeFileSync(tmp, content)
+    // fsync before the rename. Without it the rename can reach the disk before
+    // the temp file's own data blocks do, so a power loss leaves a valid
+    // directory entry pointing at a short or empty file — the exact loss this
+    // primitive exists to prevent, just at a lower layer. Cheap here: these
+    // files are kilobytes and written once per operation.
+    const fd = openSync(tmp, 'w')
+    try {
+      writeFileSync(fd, content)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
     renameSync(tmp, target)
   } catch (err) {
     try {
@@ -61,25 +80,34 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+// A lock is only stale if its owner is gone. Getting this wrong in the
+// permissive direction is worse than not locking at all, because it looks like
+// mutual exclusion while providing none.
+//
 // Returns true if it removed a lock whose owner is gone.
 function reapIfStale(lock) {
-  let pid
+  let raw
   try {
-    pid = Number(readFileSync(lock, 'utf8').trim())
+    raw = readFileSync(lock, 'utf8').trim()
   } catch {
     return false // vanished between the EEXIST and here — just retry
   }
-  if (!Number.isFinite(pid) || pid <= 0) {
-    try {
-      unlinkSync(lock)
-      return true
-    } catch {
-      return false
-    }
-  }
+
+  // An unreadable or empty lock means WAIT, never reap. The first version
+  // reaped it, and that single branch made the whole lock decorative: an
+  // O_CREAT|O_EXCL open leaves the file empty for the microseconds before the
+  // pid is written, so a contender that lost the open race read '', evaluated
+  // Number('') === 0, matched the "garbage" case, and deleted a LIVE lock — then
+  // both processes ran the critical section, and the loser's release deleted the
+  // winner's lock, admitting a third. Measured: 20 of 300 updates lost.
+  // acquire() below now writes the pid before the lock exists at all, so an
+  // empty lock should be unreachable; this stays as the belt to that suspenders,
+  // because the failure it guards is silent.
+  const pid = Number(raw)
+  if (!raw || !Number.isFinite(pid) || pid <= 0) return false
+
   try {
     process.kill(pid, 0) // signal 0 = existence probe, sends nothing
-    return false // alive; wait for it
   } catch (err) {
     // ESRCH: the holder is gone. EPERM: it exists under another user — alive.
     if (err.code !== 'ESRCH') return false
@@ -90,36 +118,66 @@ function reapIfStale(lock) {
       return false
     }
   }
+
+  // The pid resolves to a LIVE process — but pids get recycled, so after a hard
+  // crash an unrelated process can inherit the dead holder's number and keep the
+  // lock alive forever. Critical sections here are single-digit milliseconds, so
+  // treat a lock older than a minute as abandoned regardless of who holds the pid.
+  try {
+    if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) {
+      unlinkSync(lock)
+      return true
+    }
+  } catch {
+    /* raced with another reaper — retry */
+  }
+  return false
+}
+
+// Create the lock file WITH its pid already in it, atomically. Writing the
+// content to a private staging name and hard-linking it into place means the
+// lock never exists in a half-initialized state for a contender to misread.
+// link(2) fails with EEXIST if the target exists, giving the same
+// create-or-fail guarantee as O_EXCL.
+function acquire(lock) {
+  const stage = `${lock}.stage-${process.pid}`
+  try {
+    writeFileSync(stage, String(process.pid))
+    try {
+      linkSync(stage, lock)
+      return true
+    } catch (err) {
+      if (err.code === 'EEXIST') return false
+      throw err
+    }
+  } finally {
+    try {
+      unlinkSync(stage)
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 // Run fn() holding an exclusive lock on `target`. The whole read-modify-write
 // must happen INSIDE fn — locking only the write would still lose updates,
 // since the stale read is what makes the entry disappear.
-export function withFileLock(target, fn, { attempts = 200, waitMs = 25 } = {}) {
+// The budget (attempts × waitMs) is a LOAD tolerance, not a correctness knob:
+// critical sections here are single-digit milliseconds, so the only thing that
+// consumes it is many writers plus a busy machine. 5s proved too tight — a run
+// competing with several other node processes exhausted it and failed loudly.
+// 15s is still far past "something is genuinely wrong" while surviving a spike.
+export function withFileLock(target, fn, { attempts = 600, waitMs = 25 } = {}) {
   const lock = `${target}.lock`
   mkdirSync(dirname(target), { recursive: true })
   for (let i = 0; i < attempts; i++) {
-    let fd
-    try {
-      fd = openSync(lock, 'wx') // O_CREAT|O_EXCL — atomic create-or-fail
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err
+    if (!acquire(lock)) {
       if (!reapIfStale(lock)) sleepSync(waitMs)
       continue
     }
     try {
-      writeSync(fd, String(process.pid))
-      closeSync(fd)
-      fd = undefined
       return fn()
     } finally {
-      if (fd !== undefined) {
-        try {
-          closeSync(fd)
-        } catch {
-          /* already closed */
-        }
-      }
       try {
         unlinkSync(lock)
       } catch {
@@ -136,7 +194,18 @@ export function withFileLock(target, fn, { attempts = 200, waitMs = 25 } = {}) {
 // Convenience for the overlay writers: lock, read+transform, write atomically.
 export function updateJsonFile(target, transform, fallback) {
   return withFileLock(target, () => {
-    const current = existsSync(target) ? JSON.parse(readFileSync(target, 'utf8')) : fallback
+    let current = fallback
+    if (existsSync(target)) {
+      try {
+        current = JSON.parse(readFileSync(target, 'utf8'))
+      } catch (err) {
+        // Refuse rather than "recover" by starting from the fallback: that would
+        // silently replace a damaged-but-repairable overlay with an empty one.
+        // Reword the bare SyntaxError so every CLI on this path reports the
+        // problem the way cue-tag --apply already does.
+        throw new Error(`Malformed ${target}: ${err.message} — fix it before retrying. The file was NOT modified.`)
+      }
+    }
     const next = transform(current)
     atomicWriteFileSync(target, `${JSON.stringify(next, null, 2)}\n`)
     return next

@@ -21,14 +21,14 @@
 // a human-shaped name. Spends real provider quota (one websearch call per name;
 // Claude by default, any web-capable agent via CLADE_AGENT_CMD — docs/byo-model.md).
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runAgent } from './lib/agent.mjs'
 import { buildCueBatchPrompt, clean, isKeyShapedName, parseJsonBlock, validateCueBatchVerdicts } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
 import { atomicWriteFileSync, updateJsonFile } from './overlay-write.mjs'
-import { dataPath, dataPathContained } from './paths.mjs'
+import { assertWritableTarget, dataPath, dataPathContained } from './paths.mjs'
 
 const INDEX_PATH = dataPath('contacts/unified-index.json')
 const ATTESTED_PATH = dataPath('contacts/attested.json')
@@ -45,7 +45,20 @@ const PROPOSALS_PATH = (() => {
     console.error('--proposals needs a file path (e.g. --proposals contacts/cue-hometown.json)')
     process.exit(1)
   }
-  if (isAbsolute(v)) return v
+  // An absolute --proposals is honored as-is (deliberate: it lets the operator
+  // bank a cue run outside the data dir) — but it still may not name a managed
+  // overlay. The guard used to live only on the relative branch below, so
+  // `--proposals <dataroot>/contacts/attested.json --force` sailed past it and
+  // destroyed the owner's attested facts while printing success.
+  if (isAbsolute(v)) {
+    try {
+      assertWritableTarget(v)
+    } catch (err) {
+      console.error(err.message)
+      process.exit(1)
+    }
+    return v
+  }
   // dataPath() is join(), which NORMALIZES '..' — so it anchors a relative value
   // to the data root but does not KEEP it there, and `--proposals ../x.json`
   // wrote this PII-bearing file to the root's parent (a longer chain reaches
