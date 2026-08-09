@@ -129,11 +129,30 @@ function reapIfStale(lock) {
   } catch {
     return false // someone else reaped or re-acquired it — just retry
   }
-  // Re-read what we actually claimed: if it is no longer the dead pid we probed,
-  // a live holder acquired between the read and the rename, so put it back.
+  // Re-read what we actually claimed. The rename above moves whatever is at
+  // `lock` RIGHT NOW, which is not necessarily the dead pid that was read a few
+  // lines up — a live holder may have acquired in between. If so, put it back.
+  //
+  // The putback is CREATE-ONLY (link, not rename) on purpose. An unconditional
+  // rename here overwrites whatever occupies the path, and during the vacancy
+  // this function opens between the steal and the putback, a third process can
+  // legitimately acquire — so an unconditional putback silently destroys that
+  // process's lock while it is inside its critical section. Reproduced 5/5 with
+  // instrumented scheduling. If the path is occupied when we try to give it
+  // back, the occupant is the rightful holder: drop the claim and let it stand.
   try {
     if (readFileSync(claim, 'utf8').trim() !== raw) {
-      renameSync(claim, lock)
+      try {
+        linkSync(claim, lock)
+      } catch (err) {
+        if (err.code !== 'EEXIST') throw err
+        // Someone else holds it now — theirs wins, ours is discarded below.
+      }
+      try {
+        unlinkSync(claim)
+      } catch {
+        /* already gone */
+      }
       return false
     }
   } catch {
