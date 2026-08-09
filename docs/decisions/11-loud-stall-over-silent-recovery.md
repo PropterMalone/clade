@@ -5,7 +5,7 @@ date: 2026-08-09
 status: active
 amends: null
 supersedes: null
-commits: [69e89c7, b8515e8, 935126b, 4c596d1, be24e30]
+commits: [69e89c7, b8515e8, 935126b, 4c596d1, be24e30, d747db2, 6e13aa4]
 ---
 
 # Loud stall over silent recovery for irreplaceable overlays
@@ -42,9 +42,13 @@ envelope helpers coerce such input to empty, and writing that back produces a
 fresh envelope holding only the newest entry.
 
 Regenerable outputs (`unified-index.json`, `merge-candidates.json`,
-`rolodex-knowledge.md`) take the atomic write but **not** the lock: they have a
-single writer, and the atomicity is there for concurrent *readers* — the MCP
-server re-reads the index on every tool call by design.
+`rolodex-knowledge.md`) take the atomic write but **not** the lock. The reason is
+regenerability plus atomic replace, not single-writer discipline: nothing
+actually prevents two concurrent `build-index` runs, and it does not matter,
+because each writes a whole consistent snapshot and the last one wins. The
+atomicity is there for concurrent *readers* — the MCP server re-reads the index
+on every tool call by design, so a truncating rebuild would hand it a
+half-written file.
 
 **Why**: Three review rounds on 2026-08-09, each finding real defects in the
 previous round's fixes, converged on one principle. The measurements:
@@ -76,15 +80,17 @@ previous round's fixes, converged on one principle. The measurements:
 The ordering in the decision is the point. Property 1 outranks convenience
 because of what these two files are: a lost merge ruling resurfaces as a re-asked
 candidate at the next rebuild, but a lost attestation is the owner's
-irreplaceable fact gone with **no symptom, ever**. Against that, an operator who
-must delete a lock file has lost ten seconds and knows exactly what happened.
+irreplaceable fact gone with **no symptom the owner would recognize as loss** —
+at best the contact resurfaces in a later triage batch, reading as "didn't I
+already answer this?" rather than as data destruction. Against that, an operator
+who must delete a lock file has lost ten seconds and knows exactly what happened.
 
 **Rejected alternative**: *Age-based staleness* — treat a lock held longer than
 some cutoff as abandoned and take it. This was not merely considered; it was
 **built and shipped** (commit 935126b, 60s cutoff) to cure a real problem: after a
 hard crash, the dead holder's pid can be recycled by an unrelated process, so the
-liveness probe reports "alive" and the lock is never reaped. It was removed one
-commit later (4c596d1) because it converted a **loud** failure into a **silent**
+liveness probe reports "alive" and the lock is never reaped. It was removed two
+commits later (4c596d1) because it converted a **loud** failure into a **silent**
 one, reproduced: a live holder stalled inside its critical section (suspend,
 swap, SIGSTOP) had its lock taken at the cutoff; the contender wrote and exited
 0; then the original holder finished and wrote its stale snapshot over the top,
@@ -106,7 +112,12 @@ operators. **Two observables, because either alone is blind:**
    also the only observable that survives the documented recovery: an operator
    who deletes the lock erases every after-the-fact trace.
 2. **A stranded lock nobody has collided with yet** — a `.lock` surviving in a
-   live data directory. Secondary and weaker, and its two sub-cases mean
+   live data directory for longer than any holder could plausibly still be
+   working. Critical sections here measure ~2ms (200 locked updates in 0.36s),
+   so the window is not sized against the operation — it is sized against the
+   thing that makes a live holder look dead: a laptop suspended mid-write. One
+   hour is generously past that and still far short of "nobody noticed for a
+   day." Secondary and weaker than observable 1, and its two sub-cases mean
    opposite things, so it is reported rather than auto-classified: a **dead**-pid
    leftover is the self-healing case (the next write reaps it at zero operator
    cost) and only indicates that no write has run since; a **live**-pid lock much
@@ -125,7 +136,7 @@ exclusion), never a return to the age cutoff.
 #    it throws, so the stall outlives the operator's cleanup. Note ${VAR:-.}:
 #    CLADE_DATA_DIR is unset in a local install and forbidden in cloud mode.
 D="${CLADE_DATA_DIR:-.}/contacts"
-[ -f "$D/.lock-stalls" ] && wc -l < "$D/.lock-stalls" || echo 0
+if [ -f "$D/.lock-stalls" ]; then wc -l < "$D/.lock-stalls"; else echo 0; fi
 
 # 2. SECONDARY — surviving locks, reported with holder liveness, not auto-judged
 for f in $(find "$D" -maxdepth 1 -name '*.lock' -mmin +60 2>/dev/null); do
@@ -138,9 +149,13 @@ done
 **Status quo check**: check 1 returned `0` and check 2 no lines against the live
 instance on the day this shipped. Neither is decorative, verified by planting:
 a stall against a live holder writes a `.lock-stalls` line and check 1 returns
-`1`; a 20-minute dead-pid lock is reaped by the next `attest.mjs` and check 2
-falls silent, while a live-pid lock aged past the window is reported for
-adjudication rather than counted.
+`1`. Check 2 was re-verified against its OWN window, not an older one: a
+90-minute-old dead-pid lock is reported `dead=… (self-heals)` and disappears once
+`attest.mjs` runs and reaps it; a 90-minute-old live-pid lock is reported
+`live=… (adjudicate)` and is deliberately NOT auto-classified, because that is
+the shape pid reuse presents. (An earlier draft illustrated this with a
+20-minute plant left over from a 5-minute window — true, but inert against the
+threshold printed beside it.)
 
 **Two ways this falsifier was already wrong, kept because they generalize:**
 
@@ -198,6 +213,13 @@ does not invite the per-key parallel fan-out that `attest.mjs --key` does, so
 concurrent callers are rare where they were routine. That is a weaker reason than
 the rest of this document rests on. If quick-add processing ever writes
 `manual.json` from more than one process, this needs the lock.
+
+**Known litter** (accepted): a crash inside `acquire()` or `reapIfStale()` can
+leave a `.lock.stage-<pid>` or `.lock.reap-<pid>` file behind. Nothing sweeps
+them, and they match neither the `*.lock` glob in check 2 nor the temp-file test,
+so they have no observable at all. They are pid-unique, never read, and never
+block a later acquisition — litter, not a correctness gap. Named here so a reader
+finding one does not mistake it for a stranded lock.
 
 **Known residual** (not fixed, deliberately): `reapIfStale` claims a dead
 holder's lock by renaming it aside, then verifies what it got. During that gap

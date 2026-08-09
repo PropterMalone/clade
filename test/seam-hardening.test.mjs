@@ -163,6 +163,17 @@ test('a lock held by a LIVE process is never stolen', () => {
     )
     assert.equal(ran, false, 'the critical section must not run while another holder has the lock')
     assert.ok(existsSync(`${target}.lock`), "the live holder's lock must survive")
+
+    // The stall must leave a durable trace. ADR-11's falsifier asks whether
+    // choosing to stall rather than auto-recover ever costs an operator
+    // anything, and the cost is paid HERE and then erased — the operator deletes
+    // the lock and every after-the-fact sweep reads clean. Without this
+    // assertion, a refactor of the throw path stops writing the breadcrumb, the
+    // falsifier silently becomes unfalsifiable, and nothing goes red. That
+    // failure has already shipped twice in this ADR's short life.
+    const stalls = readFileSync(join(dir, 'contacts/.lock-stalls'), 'utf8')
+    assert.match(stalls, /Could not acquire/)
+    assert.match(stalls, new RegExp(`holder=${process.pid}\\b`))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

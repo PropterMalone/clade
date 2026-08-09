@@ -5,8 +5,10 @@
 //
 // 1. LOST UPDATE. attest.mjs / record-merge.mjs / cue-tag --apply each did an
 //    unguarded read-modify-write of one shared file. Twenty parallel attest
-//    calls: all twenty exited 0 and printed "Attested", nineteen entries
-//    survived. Both processes read version V and each wrote its own V+1. This is
+//    calls, run twice: one run left nineteen entries (a clean lost update), the
+//    other interleaved into invalid JSON and the next readers died in a cascade.
+//    All twenty exited 0 and printed "Attested" both times — cite the range, not
+//    either endpoint. Both processes read version V and each wrote V+1. This is
 //    not a contrived race — the documented pipeline invites it (bulk merge
 //    rulings, ~10 attestations per triage batch), and an operating agent under
 //    normal parallel-tool-call doctrine fires per-key calls concurrently because
