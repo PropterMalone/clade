@@ -19,7 +19,7 @@
 import { pathToFileURL } from 'node:url'
 import { looksLikeStreetAddress } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
-import { updateJsonFile } from './overlay-write.mjs'
+import { expectEntryMap, updateJsonFile } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const ATTESTED_PATH = dataPath('contacts/attested.json')
@@ -93,6 +93,7 @@ function main() {
       return wrapEntries(entries)
     },
     {},
+    { validate: expectEntryMap },
   )
   console.log(`Attested ${key} → ${ATTESTED_PATH}`)
   console.log(JSON.stringify(entry, null, 2))

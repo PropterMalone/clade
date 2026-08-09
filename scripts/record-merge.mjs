@@ -15,7 +15,7 @@
 
 import { pathToFileURL } from 'node:url'
 import { unwrapDecisions, wrapDecisions } from './lib/envelope.mjs'
-import { updateJsonFile } from './overlay-write.mjs'
+import { expectDecisions, updateJsonFile } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const DECISIONS_PATH = dataPath('contacts/merge-decisions.json')
@@ -65,6 +65,7 @@ function main() {
       return wrapDecisions(decisions)
     },
     [],
+    { validate: expectDecisions },
   )
   console.log(`${outcome} ruling: ${keys.join(' + ')} → ${verdict}`)
   console.log(`→ ${DECISIONS_PATH}`)

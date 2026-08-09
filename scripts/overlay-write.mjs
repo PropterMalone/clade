@@ -26,6 +26,7 @@
 import {
   closeSync,
   existsSync,
+  fchmodSync,
   fsyncSync,
   linkSync,
   mkdirSync,
@@ -39,10 +40,6 @@ import {
 } from 'node:fs'
 import { dirname } from 'node:path'
 
-// A held lock older than this is treated as abandoned. Critical sections here
-// are single-digit milliseconds, so a minute is far beyond any legitimate hold
-// and still short enough that a crash doesn't strand the operator.
-const STALE_LOCK_MS = 60_000
 
 // Write via a sibling temp file + rename. rename(2) is atomic on the same
 // filesystem, and the temp always sits beside the target, so it never crosses a
@@ -59,6 +56,13 @@ export function atomicWriteFileSync(target, content) {
     // files are kilobytes and written once per operation.
     const fd = openSync(tmp, 'w')
     try {
+      // A rename makes the TEMP file's mode the target's mode, so without this
+      // every write silently reverts a tightened permission: measured, an
+      // attested.json chmod'd to 600 came back 664 after one attest. The old
+      // truncate-in-place preserved it. These files hold the owner's whole
+      // address book, so widening them as a side effect of saving is the wrong
+      // direction to fail in.
+      if (existsSync(target)) fchmodSync(fd, statSync(target).mode & 0o7777)
       writeFileSync(fd, content)
       fsyncSync(fd)
     } finally {
@@ -108,37 +112,75 @@ function reapIfStale(lock) {
 
   try {
     process.kill(pid, 0) // signal 0 = existence probe, sends nothing
+    return false // alive — wait for it, never steal
   } catch (err) {
     // ESRCH: the holder is gone. EPERM: it exists under another user — alive.
     if (err.code !== 'ESRCH') return false
-    try {
-      unlinkSync(lock)
-      return true
-    } catch {
-      return false
-    }
   }
 
-  // The pid resolves to a LIVE process — but pids get recycled, so after a hard
-  // crash an unrelated process can inherit the dead holder's number and keep the
-  // lock alive forever. Critical sections here are single-digit milliseconds, so
-  // treat a lock older than a minute as abandoned regardless of who holds the pid.
+  // The holder is confirmed dead. Claim the reap by RENAMING the lock aside
+  // rather than unlinking it: rename is atomic, so if two contenders both decide
+  // "stale" at once exactly one succeeds and the loser gets ENOENT. Unlinking by
+  // name instead lets the slower reaper delete a lock a third process has
+  // already acquired in the meantime.
+  const claim = `${lock}.reap-${process.pid}`
   try {
-    if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) {
-      unlinkSync(lock)
-      return true
+    renameSync(lock, claim)
+  } catch {
+    return false // someone else reaped or re-acquired it — just retry
+  }
+  // Re-read what we actually claimed: if it is no longer the dead pid we probed,
+  // a live holder acquired between the read and the rename, so put it back.
+  try {
+    if (readFileSync(claim, 'utf8').trim() !== raw) {
+      renameSync(claim, lock)
+      return false
     }
   } catch {
-    /* raced with another reaper — retry */
+    /* unreadable — fall through and drop it */
   }
-  return false
+  try {
+    unlinkSync(claim)
+  } catch {
+    /* already gone */
+  }
+  return true
 }
+
+// NOTE ON WHAT IS DELIBERATELY ABSENT: an age-based "this lock looks too old,
+// take it" fallback. It was here briefly, to cover the case where a crashed
+// holder's pid gets recycled by an unrelated process and the lock therefore
+// looks alive forever. It introduced a WORSE failure than the one it solved,
+// reproduced: a live holder stalled inside its critical section (suspend, swap,
+// SIGSTOP) had its lock reaped at the age cutoff; the contender wrote and exited
+// 0; then the original holder finished and wrote its stale snapshot over the
+// top, erasing the contender's entry — both processes reporting success.
+// Pid reuse strands the operator with a loud, self-describing error telling them
+// to delete the file. Silent loss of an owner-attested fact has no such recovery.
+// Do not reintroduce a time-based steal for data that cannot be regenerated.
 
 // Create the lock file WITH its pid already in it, atomically. Writing the
 // content to a private staging name and hard-linking it into place means the
 // lock never exists in a half-initialized state for a contender to misread.
 // link(2) fails with EEXIST if the target exists, giving the same
 // create-or-fail guarantee as O_EXCL.
+// Release only a lock we still own. Unlinking by name unconditionally means a
+// holder whose lock was taken from it goes on to delete the NEW holder's lock,
+// admitting a third writer — the same shape as the lost-update bug this module
+// exists to prevent, one layer up.
+function release(lock) {
+  try {
+    if (readFileSync(lock, 'utf8').trim() !== String(process.pid)) return
+  } catch {
+    return // already gone
+  }
+  try {
+    unlinkSync(lock)
+  } catch {
+    /* already released */
+  }
+}
+
 function acquire(lock) {
   const stage = `${lock}.stage-${process.pid}`
   try {
@@ -178,11 +220,7 @@ export function withFileLock(target, fn, { attempts = 600, waitMs = 25 } = {}) {
     try {
       return fn()
     } finally {
-      try {
-        unlinkSync(lock)
-      } catch {
-        /* already released */
-      }
+      release(lock)
     }
   }
   throw new Error(
@@ -192,7 +230,7 @@ export function withFileLock(target, fn, { attempts = 600, waitMs = 25 } = {}) {
 }
 
 // Convenience for the overlay writers: lock, read+transform, write atomically.
-export function updateJsonFile(target, transform, fallback) {
+export function updateJsonFile(target, transform, fallback, { validate } = {}) {
   return withFileLock(target, () => {
     let current = fallback
     if (existsSync(target)) {
@@ -205,9 +243,30 @@ export function updateJsonFile(target, transform, fallback) {
         // problem the way cue-tag --apply already does.
         throw new Error(`Malformed ${target}: ${err.message} — fix it before retrying. The file was NOT modified.`)
       }
+      // Parsing is not enough. A file that parses to the WRONG SHAPE (an array
+      // where an entry map belongs, a bare null) was coerced to empty by the
+      // envelope helpers and then written back as a fresh envelope holding only
+      // the new entry — reproduced, destroying every prior attestation while
+      // reporting success. That is precisely the "silently replace a
+      // damaged-but-repairable overlay" this refusal exists to prevent, so the
+      // shape check has to sit beside the parse check.
+      const problem = validate?.(current)
+      if (problem) {
+        throw new Error(`Refusing to rewrite ${target}: ${problem} The file was NOT modified.`)
+      }
     }
     const next = transform(current)
     atomicWriteFileSync(target, `${JSON.stringify(next, null, 2)}\n`)
     return next
   })
 }
+
+// Shape guards for the two overlay families. Passed to updateJsonFile so a
+// parseable-but-wrong-shape file is refused instead of silently replaced.
+const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+export const expectEntryMap = (v) =>
+  isPlainObject(v) ? null : `expected a JSON object of entries (or a { schemaVersion, entries } envelope), got ${Array.isArray(v) ? 'an array' : typeof v}.`
+
+export const expectDecisions = (v) =>
+  Array.isArray(v) || isPlainObject(v) ? null : `expected an array of rulings (or a { schemaVersion, decisions } envelope), got ${typeof v}.`

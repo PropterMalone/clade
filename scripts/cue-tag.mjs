@@ -27,7 +27,7 @@ import { pathToFileURL } from 'node:url'
 import { runAgent } from './lib/agent.mjs'
 import { buildCueBatchPrompt, clean, isKeyShapedName, parseJsonBlock, validateCueBatchVerdicts } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
-import { atomicWriteFileSync, updateJsonFile } from './overlay-write.mjs'
+import { atomicWriteFileSync, expectEntryMap, updateJsonFile } from './overlay-write.mjs'
 import { assertWritableTarget, dataPath, dataPathContained } from './paths.mjs'
 
 const INDEX_PATH = dataPath('contacts/unified-index.json')
@@ -212,6 +212,7 @@ function apply() {
       return wrapEntries(attested)
     },
     {},
+    { validate: expectEntryMap },
   )
   unlinkSync(PROPOSALS_PATH)
   console.log(`Attested ${wanted.length} contact(s) as "${tag}". Rebuild: node scripts/build-index.mjs`)

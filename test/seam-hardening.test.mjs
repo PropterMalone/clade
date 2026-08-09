@@ -17,12 +17,12 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { atomicWriteFileSync } from '../scripts/overlay-write.mjs'
+import { atomicWriteFileSync, withFileLock } from '../scripts/overlay-write.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const node = process.execPath
@@ -130,6 +130,96 @@ test('sustained contention loses no updates', async () => {
     assert.equal(failed.length, 0, `workers should all succeed: ${failed.map((f) => f.stderr).join('; ')}`)
     const keys = Object.keys(JSON.parse(readFileSync(target, 'utf8')))
     assert.equal(keys.length, W * C, `every locked update must survive: lost ${W * C - keys.length} of ${W * C}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a lock held by a LIVE process is never stolen', () => {
+  // The reaper briefly had an age-based fallback: a lock older than a cutoff was
+  // taken regardless of whether its holder lived. Reproduced consequence — a
+  // holder stalled inside its critical section (suspend, swap, SIGSTOP) lost its
+  // lock, the contender wrote and exited 0, then the original holder finished and
+  // wrote its stale snapshot over the top, erasing the contender's entry with
+  // both processes reporting success. Waiting and failing loudly beats a silent
+  // steal for data that cannot be regenerated.
+  //
+  // Honest limit: this pins "a live holder is never displaced" in general, NOT
+  // the age-cutoff case specifically — catching that would need a test that
+  // holds a lock past the old 60s threshold, which is too slow to keep in the
+  // suite. The protection there is that the code path no longer exists.
+  const dir = freshDataDir()
+  try {
+    const target = join(dir, 'contacts/attested.json')
+    mkdirSync(dirname(target), { recursive: true })
+    // This test process is unquestionably alive, so its pid is a live holder.
+    writeFileSync(`${target}.lock`, String(process.pid))
+
+    let ran = false
+    assert.throws(
+      () => withFileLock(target, () => { ran = true }, { attempts: 3, waitMs: 5 }),
+      /Could not acquire/,
+      'a live holder must be waited on, then reported — never displaced',
+    )
+    assert.equal(ran, false, 'the critical section must not run while another holder has the lock')
+    assert.ok(existsSync(`${target}.lock`), "the live holder's lock must survive")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('overlay writes preserve a tightened file mode', () => {
+  // A rename makes the temp file's mode the target's, so without explicit
+  // preservation every save silently widened permissions: measured 600 -> 664
+  // after a single attest, on a file holding the owner's whole address book.
+  const dir = freshDataDir()
+  try {
+    run('scripts/attest.mjs', ['--key', 'manual:a', '--relationship', 'x'], dir)
+    const target = join(dir, 'contacts/attested.json')
+    chmodSync(target, 0o600)
+
+    run('scripts/attest.mjs', ['--key', 'manual:b', '--relationship', 'y'], dir)
+    assert.equal(statSync(target).mode & 0o777, 0o600, 'saving must not widen the file mode')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('an overlay that parses but has the wrong shape is refused, not replaced', () => {
+  // JSON.parse succeeding is not enough. The envelope helpers coerce a
+  // parseable non-object (an array, a bare null) to empty, so the write-back
+  // produced a fresh envelope holding ONLY the new entry — reproduced,
+  // destroying every prior attestation while reporting success.
+  const dir = freshDataDir()
+  try {
+    const target = join(dir, 'contacts/attested.json')
+    mkdirSync(dirname(target), { recursive: true })
+    for (const wrong of ['[{"a":1},{"b":2}]', 'null', '"a string"']) {
+      writeFileSync(target, wrong)
+      const r = run('scripts/attest.mjs', ['--key', 'manual:new', '--relationship', 'z'], dir)
+      assert.notEqual(r.status, 0, `wrong-shape overlay must be refused: ${wrong}`)
+      assert.match(r.stderr, /Refusing to rewrite/)
+      assert.equal(readFileSync(target, 'utf8'), wrong, 'the damaged file must be left exactly as found')
+      assert.ok(!existsSync(`${target}.lock`), 'no lock may be left behind')
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a malformed overlay is refused and left byte-identical', () => {
+  const dir = freshDataDir()
+  try {
+    const target = join(dir, 'contacts/attested.json')
+    mkdirSync(dirname(target), { recursive: true })
+    const damaged = '{"schemaVersion":1,"entries":{'
+    writeFileSync(target, damaged)
+
+    const r = run('scripts/attest.mjs', ['--key', 'manual:new', '--relationship', 'z'], dir)
+    assert.notEqual(r.status, 0)
+    assert.match(r.stderr, /Malformed/)
+    assert.equal(readFileSync(target, 'utf8'), damaged, 'a damaged overlay must never be "recovered" by overwriting it')
+    assert.ok(!existsSync(`${target}.lock`), 'no lock may be left behind')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
