@@ -7,18 +7,35 @@ each person is, what they do, and why you know them.
 
 ## Your data is yours
 
-Clade is software you run, not a service you sign up for. There is no server,
-no account, no telemetry. Nothing phones home. The author has no role in
-hosting any of it and never sees your data. On a local install your contacts
-live only on your machine (the data directories are gitignored and never
-committed).
+Clade is software you run, not a service you sign up for. There is no Clade
+server, no account, and no telemetry: nothing reports back to the author, who
+has no role in hosting any of it and never sees your data. On a local install
+your contacts live only on your machine (the data directories are gitignored
+and never committed).
+
+Be clear about the limit of that claim — it is about Clade, not about your whole
+setup. **Enrichment researches people by asking an AI agent, so the contacts you
+enrich are sent to whichever model provider you configure, and that provider
+sees them under its own terms.** No amount of "no telemetry" on this end changes
+that.
+
+And the details are not yours the way your files are. They belong to other
+people, who did not ask to be looked up and were never asked whether an AI
+should read about them. That asymmetry is real and the tool cannot resolve it
+for you. What it can do is make enrichment a deliberate act instead of a
+default, which is why it runs in batches you start by hand rather than
+automatically over everyone you know. Telling it "cousin" yourself costs no
+research at all and is often the more useful record anyway — though if you later
+enrich that person, what you wrote goes into their own research session (never
+into a batch shared with other contacts).
 
 Three things can leave your custody, all under your control:
 
-1. Enrichment research by your own agent, through the agent account you
-   already have. Web searches are one person per query. The URL-confirmation
-   step may batch a few contacts' public profile details (names, employers,
-   links, never your private notes about them) into a single session.
+1. Enrichment research, run by your own agent through the account you already
+   have — so your model provider sees whatever a batch contains. Web searches
+   are one person per query. The URL-confirmation step may batch a few
+   contacts' public profile details (names, employers, links, never your
+   private notes about them) into a single session.
 2. A knowledge file you can choose to upload to your own claude.ai Project
    for phone lookups.
 3. In cloud mode (Claude Code on the web), commits to your own private GitHub
