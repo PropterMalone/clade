@@ -24,6 +24,7 @@
 // they do want the atomic write.
 
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   fchmodSync,
@@ -38,7 +39,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 
 // Write via a sibling temp file + rename. rename(2) is atomic on the same
@@ -251,6 +252,21 @@ export function withFileLock(target, fn, { attempts = 600, waitMs = 25 } = {}) {
     holder = readFileSync(lock, 'utf8').trim() || 'empty'
   } catch {
     /* vanished while we were giving up — retrying will now succeed */
+  }
+  // Leave a durable breadcrumb BEFORE throwing. ADR-11 chooses to stall rather
+  // than auto-recover, and its falsifier is "does that stall actually cost
+  // operators anything" — but the cost is paid at this exact moment and then
+  // erased: the operator deletes the lock and every after-the-fact sweep reads
+  // clean. Without this line the falsifier is unfalsifiable, which is the whole
+  // failure mode ADR-11's own lesson note warns about. Append-only, so it needs
+  // no lock of its own; inside the data dir, so it never leaves custody.
+  try {
+    appendFileSync(
+      join(dirname(target), '.lock-stalls'),
+      `${new Date().toISOString()}\tCould not acquire\t${lock}\tholder=${holder}\n`,
+    )
+  } catch {
+    /* best-effort telemetry — never let it mask the real error */
   }
   throw new Error(
     `Could not acquire ${lock} after ${attempts} attempts (held by pid ${holder}).\n` +

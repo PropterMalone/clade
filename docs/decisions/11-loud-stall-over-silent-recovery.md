@@ -98,19 +98,20 @@ lives in `overlay-write.mjs` beside the code it warns about.
 i.e. the pid-reuse case this deliberately does not handle actually strands
 operators. **Two observables, because either alone is blind:**
 
-1. **A stranded lock nobody has collided with yet** — a `.lock` surviving in a
-   live data directory whose recorded pid is dead or foreign. The pid check is
-   part of the observable, not decoration: this ADR's own rejected alternative
-   rests on a live holder outlasting a time cutoff (suspend, swap, SIGSTOP), so
-   an age test alone would count a correct, live holder as evidence against the
-   decision it supports.
-2. **A writer that actually hit the wall** — an occurrence of the "Could not
-   acquire" error in ordinary operation. This one is load-bearing because the
-   documented recovery *destroys the evidence for observable 1*: the operator
-   deletes the lock and the count returns to zero. Strandings that impose the
-   real cost are exactly the ones erased before any sweep runs, so a check that
-   only counts surviving locks can read `0` forever while operators are stalling
-   weekly.
+1. **A writer that actually hit the wall** — a recorded "Could not acquire"
+   stall. This is the PRIMARY observable, because it is the only one that sees
+   the canonical failure. Pid reuse means the recycled pid is *alive*, so a
+   strand caused by it is indistinguishable from a busy holder by inspection —
+   the only way to know it stranded someone is that someone got stuck. It is
+   also the only observable that survives the documented recovery: an operator
+   who deletes the lock erases every after-the-fact trace.
+2. **A stranded lock nobody has collided with yet** — a `.lock` surviving in a
+   live data directory. Secondary and weaker, and its two sub-cases mean
+   opposite things, so it is reported rather than auto-classified: a **dead**-pid
+   leftover is the self-healing case (the next write reaps it at zero operator
+   cost) and only indicates that no write has run since; a **live**-pid lock much
+   older than any critical section is either pid reuse or a suspended holder, and
+   needs a human to say which.
 
 Threshold: **one or more** of either, in ordinary operation (not induced by a
 test), means the no-heuristic stance costs more than it saves — and the answer is
@@ -120,33 +121,42 @@ exclusion), never a return to the age cutoff.
 **Evaluated by**:
 
 ```sh
-# 1. stranded locks whose holder is gone — note the ${VAR:-.} default
-for f in $(find "${CLADE_DATA_DIR:-.}/contacts" -maxdepth 1 -name '*.lock' -mmin +5 2>/dev/null); do
-  kill -0 "$(cat "$f")" 2>/dev/null || echo "$f"
-done | wc -l
+# 1. PRIMARY — writers that gave up. withFileLock appends one line here before
+#    it throws, so the stall outlives the operator's cleanup. Note ${VAR:-.}:
+#    CLADE_DATA_DIR is unset in a local install and forbidden in cloud mode.
+D="${CLADE_DATA_DIR:-.}/contacts"
+[ -f "$D/.lock-stalls" ] && wc -l < "$D/.lock-stalls" || echo 0
 
-# 2. writers that gave up (the evidence deletion destroys)
-grep -c 'Could not acquire' "${CLADE_LOG:-/dev/null}" 2>/dev/null || echo 0
+# 2. SECONDARY — surviving locks, reported with holder liveness, not auto-judged
+for f in $(find "$D" -maxdepth 1 -name '*.lock' -mmin +60 2>/dev/null); do
+  p=$(cat "$f"); kill -0 "$p" 2>/dev/null && echo "$f live=$p (adjudicate)" || echo "$f dead=$p (self-heals)"
+done
 ```
 
-→ `0` and `0` when the falsifier has NOT fired.
+→ `0` and no lines, when the falsifier has NOT fired.
 
-**Status quo check**: both returned `0` against the live instance on the day this
-shipped. The threshold is not decorative: planting a 20-minute-old lock file in a
-scratch data dir makes check 1 return `1`. And it discriminates the *right* case —
-a stranded lock holding a genuinely dead pid is reaped automatically on the next
-write (verified: planted, then `attest.mjs` succeeded and the count returned to
-`0`), so a survivor indicates pid reuse specifically, which is the scenario this
-ADR declines to auto-handle.
+**Status quo check**: check 1 returned `0` and check 2 no lines against the live
+instance on the day this shipped. Neither is decorative, verified by planting:
+a stall against a live holder writes a `.lock-stalls` line and check 1 returns
+`1`; a 20-minute dead-pid lock is reaped by the next `attest.mjs` and check 2
+falls silent, while a live-pid lock aged past the window is reported for
+adjudication rather than counted.
 
-**A note on how this falsifier was nearly useless**, kept because it generalizes:
-the first version was `find "$CLADE_DATA_DIR/contacts" …`, and `CLADE_DATA_DIR` is
-*unset* in the default local install and *forbidden* in cloud mode. Unset, it
-expands to `find "/contacts"`, errors to stderr, and `wc -l` prints `0` — byte
-identical to a genuine pass. In two of three documented deployment modes it was a
-constant zero. It survived a status-quo check only because that check ran the data
-path literally instead of the documented command form. **Run the falsifier exactly
-as written, in the mode the reader will run it.**
+**Two ways this falsifier was already wrong, kept because they generalize:**
+
+1. It read `find "$CLADE_DATA_DIR/contacts" …`, and that variable is *unset* in
+   the default local install and *forbidden* in cloud mode. Unset, it expands to
+   `find "/contacts"`, errors to stderr, and `wc -l` prints `0` — byte-identical
+   to a genuine pass. It survived its own status-quo check only because the check
+   ran the data path literally instead of the documented command form. **Run the
+   falsifier exactly as written, in the mode the reader will run it.**
+2. The repaired version then filtered *for* dead-pid locks — which is the case
+   the reaper already handles for free — and therefore filtered *out* pid reuse,
+   whose whole signature is that the recycled pid looks alive. Meanwhile its
+   companion check grepped a `CLADE_LOG` that exists in no code and no document:
+   an observable declared load-bearing and instrumented with nothing, which is
+   precisely the failure this ADR's own template warns about. **An observable
+   needs a producer; name the line of code that writes it.**
 
 **How to apply**:
 
