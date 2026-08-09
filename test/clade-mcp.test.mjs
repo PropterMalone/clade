@@ -16,7 +16,7 @@ const INDEX = [
     sources: ['linkedin', 'gmail'],
     emails: ['dana@example.com'],
     profession: 'Security Engineer',
-    employer: 'HackerOne',
+    employer: 'Acme Security',
     domains: ['application security'],
     labels: [],
     tier: 'multi-source',

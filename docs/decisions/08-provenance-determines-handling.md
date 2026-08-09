@@ -49,7 +49,7 @@ motivate the specific rules:
    stronger than hold-back.
 
 Provenance also earns its keep for answer quality, independent of privacy:
-"Dana is at HackerOne" carries different weight if LinkedIn said so in 2024,
+"Dana is at Acme Security" carries different weight if LinkedIn said so in 2024,
 versus she said so last week, versus a web search inferred it.
 
 **Rejected alternative**: Reuse existing fields plus a documented convention —
