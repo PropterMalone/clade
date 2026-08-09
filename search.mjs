@@ -18,7 +18,13 @@ import { pathToFileURL } from 'node:url'
 import { clean } from './scripts/lib/enrich-core.mjs'
 import { dataPath } from './scripts/paths.mjs'
 
-const indexPath = dataPath('contacts/unified-index.json')
+// Resolved inside main(), NOT at module scope. clade-mcp.mjs imports this file
+// for two pure helpers (computeStats, matchesQuery) and does its own per-call
+// dataPath() lookup so a rebuild is visible without a restart. A module-scope
+// dataPath() here ran dataRoot()'s existence check on IMPORT, so a misconfigured
+// CLADE_DATA_DIR killed the MCP server before it could answer initialize — the
+// client sees "server failed to start" instead of a diagnosable per-call error.
+const indexPath = () => dataPath('contacts/unified-index.json')
 
 export function matchesQuery(c, q) {
   if (!q) return true
@@ -54,16 +60,17 @@ export function computeStats(index) {
 }
 
 function main() {
-  if (!existsSync(indexPath)) {
+  const path = indexPath()
+  if (!existsSync(path)) {
     console.log('No index yet — run: node scripts/build-index.mjs')
     process.exit(1)
   }
-  const index = JSON.parse(readFileSync(indexPath, 'utf8'))
+  const index = JSON.parse(readFileSync(path, 'utf8'))
   const args = process.argv.slice(2)
 
   if (args.length === 0) {
     console.log('usage: node search.mjs [--domain TAG] [--role ROLE] [--location CITY] [--confidence LEVEL] [--source SRC] [--tier TIER] [--stats] [--limit N] [QUERY...]')
-    console.log(`index: ${index.length} contacts (${indexPath})`)
+    console.log(`index: ${index.length} contacts (${path})`)
     process.exit(0)
   }
 

@@ -7,7 +7,7 @@
   "scripts": {
     "build-index": "node scripts/build-index.mjs",
     "search": "node search.mjs",
-    "test": "node --test ./test/*.test.mjs"
+    "test": "node --test --import ./test/neutralize-env.mjs ./test/*.test.mjs"
   },
   "exports": {
     "./lib/*": "./scripts/lib/*",

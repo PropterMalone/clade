@@ -14,12 +14,13 @@
 // (contacts/, imports/, profile/); traversal (..) or an absolute target is
 // refused. Parent directories are created.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { dataRoot } from './paths.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
+import { DATA_TOP_DIRS, UNWRITABLE_DATA_FILES, dataRoot } from './paths.mjs'
 
-const ALLOWED_ROOTS = ['contacts', 'imports', 'profile']
+const ALLOWED_ROOTS = DATA_TOP_DIRS
 
 // Synchronous full drain of stdin (fd 0). readFileSync(0) is the ESM-clean idiom.
 const readStdin = () => readFileSync(0)
@@ -48,9 +49,15 @@ function main() {
     process.exit(1)
   }
 
+  const refusal = UNWRITABLE_DATA_FILES.get(rel.split(sep).join('/'))
+  if (refusal) {
+    console.error(`Refusing to overwrite ${target} wholesale — ${refusal}.`)
+    console.error('This hatch is for unstructured writes (profile/about-me.md, contacts/normalized/manual.json, contacts/enrichments/*.json).')
+    process.exit(1)
+  }
+
   const content = readStdin()
-  mkdirSync(dirname(abs), { recursive: true })
-  writeFileSync(abs, content)
+  atomicWriteFileSync(abs, content)
   console.log(`Wrote ${content.length} bytes → ${abs}`)
 }
 

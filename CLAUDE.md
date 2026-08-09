@@ -441,15 +441,26 @@ would defeat it.
      the enabler for retiring an instance repo to a plain data dir. The var must be
      an **absolute** path **outside** the engine repo (`dataRoot()` throws
      otherwise — Node never expands `~`). Only built-in DEFAULT paths route through
-     `dataPath()`; user-supplied CLI paths (argv/`--flags`) keep cwd semantics.
+     `dataPath()`; user-supplied CLI paths (argv/`--flags`) keep cwd semantics —
+     except a user-supplied path naming a PII-BEARING OUTPUT (`cue-tag
+     --proposals`, `data-write`'s target), which anchors its relative form under
+     the data root via `dataPathContained()`. That helper refuses traversal;
+     `dataPath()` cannot, because `join()` normalizes `..`.
   3. **`file:` symlink dep** (`"clade": "file:../clade"` + wildcard `exports`):
      the instance imports engine functions as `clade/lib/*`. Node resolves a
      symlinked package's imports from its realpath, so **Clade must stay
      zero-runtime-deps** — a runtime dependency here would be looked up in
      Clade's (nonexistent) `node_modules`, breaking the consumer. Keep
      `dependencies` empty; dev-only tooling is fine. (`paths.mjs` lives in
-     `scripts/`, NOT `scripts/lib/`, so the `exports` map never publishes the one
-     env/cwd-reading module — `lib/*` stays 100% data-as-args.)
+     `scripts/`, NOT `scripts/lib/`, so the `exports` map never publishes data-path
+     resolution. State that narrowly: `lib/agent.mjs` legitimately reads
+     `process.env` for `CLADE_AGENT_*`, so "`lib/*` is 100% data-as-args" is
+     already false, and a maintainer who believes it will either "fix" agent.mjs
+     and break `CLADE_AGENT_CMD`, or move `paths.mjs` into `lib/` for consistency
+     — the exact leak the placement prevents. What actually holds, now enforced by
+     a scan in `test/seam-totality.test.mjs` rather than by prose: nothing under
+     `lib/` reads `CLADE_DATA_DIR` or cwd, resolves a data path, or imports
+     `paths.mjs`.)
 - **Agent-direct data writes go through the seam-aware helper scripts, never raw
   Write.** The pipeline has the operating session record overlay data itself
   (triage, merge rulings, the interview, quick-add). An env var cannot govern a

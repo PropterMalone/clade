@@ -19,7 +19,25 @@ test('unset CLADE_DATA_DIR → cwd (direct-invocation contract preserved)', () =
 test('unset + cwd IS the engine repo → returns cwd but warns', () => {
   const { root, warn } = resolveDataRoot({}, ENGINE, ENGINE)
   assert.equal(root, ENGINE)
-  assert.match(warn, /Clade engine repo itself/)
+  assert.match(warn, /inside the Clade engine repo/)
+})
+
+test('unset + cwd is a SUBDIRECTORY of the engine repo → also warns', () => {
+  // This warned only on exact equality, while the env-var branch below already
+  // used startsWith. The gap had teeth: the .gitignore data patterns are
+  // root-anchored (`contacts/*`, not `**/contacts/*`), so from cwd =
+  // <engine>/scripts a converter writes real contact PII to
+  // scripts/contacts/normalized/*.json — a path git does NOT ignore — with no
+  // signal at all. Verified against git check-ignore, 2026-08-09.
+  const { root, warn } = resolveDataRoot({}, `${ENGINE}/scripts`, ENGINE)
+  assert.equal(root, `${ENGINE}/scripts`)
+  assert.match(warn, /inside the Clade engine repo/)
+})
+
+test('unset + cwd is a SIBLING sharing the engine name prefix → no warning', () => {
+  // /…/clade-data must not be mistaken for a directory inside /…/clade.
+  const { warn } = resolveDataRoot({}, `${ENGINE}-data`, ENGINE)
+  assert.equal(warn, null)
 })
 
 test('absolute CLADE_DATA_DIR outside the repo → that path, no warning', () => {

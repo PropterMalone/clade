@@ -13,9 +13,9 @@
 // future candidate lists. A ruling on an already-decided pair updates its
 // verdict. See docs/schema.md §2 (merge-decisions.json).
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { unwrapDecisions, wrapDecisions } from './lib/envelope.mjs'
+import { updateJsonFile } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const DECISIONS_PATH = dataPath('contacts/merge-decisions.json')
@@ -44,19 +44,29 @@ function main() {
     process.exit(1)
   }
 
-  const raw = existsSync(DECISIONS_PATH) ? JSON.parse(readFileSync(DECISIONS_PATH, 'utf8')) : []
-  const decisions = unwrapDecisions(raw)
-  const id = pairId(keys)
-  const existing = decisions.find((d) => Array.isArray(d.keys) && pairId(d.keys) === id)
-  if (existing) {
-    existing.verdict = verdict
-    console.log(`Updated ruling: ${keys.join(' + ')} → ${verdict}`)
-  } else {
-    decisions.push({ keys, verdict })
-    console.log(`Recorded ruling: ${keys.join(' + ')} → ${verdict}`)
-  }
-
-  writeFileSync(DECISIONS_PATH, `${JSON.stringify(wrapDecisions(decisions), null, 2)}\n`)
+  // One locked read-modify-write: merge review offers bulk rulings ("47
+  // exact-name pairs — merge them all?"), so concurrent invocations are the
+  // normal case, not the exotic one. Unlocked, each reads the same version and
+  // the last writer wins — a ruling vanishes while both processes report success.
+  let outcome
+  updateJsonFile(
+    DECISIONS_PATH,
+    (raw) => {
+      const decisions = unwrapDecisions(raw)
+      const id = pairId(keys)
+      const existing = decisions.find((d) => Array.isArray(d.keys) && pairId(d.keys) === id)
+      if (existing) {
+        existing.verdict = verdict
+        outcome = 'Updated'
+      } else {
+        decisions.push({ keys, verdict })
+        outcome = 'Recorded'
+      }
+      return wrapDecisions(decisions)
+    },
+    [],
+  )
+  console.log(`${outcome} ruling: ${keys.join(' + ')} → ${verdict}`)
   console.log(`→ ${DECISIONS_PATH}`)
 }
 

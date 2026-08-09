@@ -16,10 +16,10 @@
 // Only the fields you pass are set; existing fields on the entry are preserved.
 // All fields are optional except --key. See docs/schema.md §2 (attested.json).
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { looksLikeStreetAddress } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
+import { updateJsonFile } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const ATTESTED_PATH = dataPath('contacts/attested.json')
@@ -38,9 +38,11 @@ function main() {
     process.exit(1)
   }
 
-  const raw = existsSync(ATTESTED_PATH) ? JSON.parse(readFileSync(ATTESTED_PATH, 'utf8')) : {}
-  const entries = unwrapEntries(raw)
-  const entry = { ...(entries[key] ?? {}) }
+  // Build the UPDATES from flags before touching the file: everything below is
+  // pure argument handling, and holding the lock across it would serialize
+  // callers for no reason. The read-modify-write happens in one locked step
+  // afterwards.
+  const updates = {}
 
   const relationship = flag('--relationship')
   const context = flag('--context')
@@ -50,10 +52,10 @@ function main() {
   // outranks both a stale export and web research (ADR-10). Street addresses
   // come from address-book ingest, not from triage.
   const location = flag('--location')
-  if (relationship !== undefined) entry.relationship = relationship
-  if (context !== undefined) entry.context = context
-  if (domains !== undefined) entry.domains = domains.split(',').map((d) => d.trim()).filter(Boolean)
-  if (realName !== undefined) entry.realName = realName
+  if (relationship !== undefined) updates.relationship = relationship
+  if (context !== undefined) updates.context = context
+  if (domains !== undefined) updates.domains = domains.split(',').map((d) => d.trim()).filter(Boolean)
+  if (realName !== undefined) updates.realName = realName
   if (location !== undefined) {
     // Refuse loudly rather than silently storing a street address in the field
     // that IS allowed to travel (ADR-10). The owner typed this, so tell them
@@ -65,16 +67,33 @@ function main() {
       console.error('Pass a city/region ("Evanston, IL"). Street addresses belong in a record\'s addresses[], via address-book ingest.')
       process.exit(1)
     }
-    entry.location = location
+    updates.location = location
   }
 
-  if (Object.keys(entry).length === 0) {
+  // Checked against the FLAGS, not the merged entry: for an existing key with no
+  // flags the merged entry is non-empty, so the old check didn't fire and the
+  // file was rewritten unchanged while printing "Attested" — a success message
+  // with nothing behind it.
+  if (Object.keys(updates).length === 0) {
     console.error('Nothing to attest — pass at least one of --relationship/--context/--domains/--real-name/--location.')
     process.exit(1)
   }
 
-  entries[key] = entry
-  writeFileSync(ATTESTED_PATH, `${JSON.stringify(wrapEntries(entries), null, 2)}\n`)
+  // Read and write inside ONE lock. Locking only the write would still lose
+  // updates: it is the STALE READ that makes a sibling's entry disappear, and
+  // triage batches invite exactly that (a session firing per-key calls in
+  // parallel because different --key values look independent).
+  let entry
+  updateJsonFile(
+    ATTESTED_PATH,
+    (raw) => {
+      const entries = unwrapEntries(raw)
+      entry = { ...(entries[key] ?? {}), ...updates }
+      entries[key] = entry
+      return wrapEntries(entries)
+    },
+    {},
+  )
   console.log(`Attested ${key} → ${ATTESTED_PATH}`)
   console.log(JSON.stringify(entry, null, 2))
 }

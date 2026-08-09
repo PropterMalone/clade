@@ -27,7 +27,8 @@ import { pathToFileURL } from 'node:url'
 import { runAgent } from './lib/agent.mjs'
 import { buildCueBatchPrompt, clean, isKeyShapedName, parseJsonBlock, validateCueBatchVerdicts } from './lib/enrich-core.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
-import { dataPath } from './paths.mjs'
+import { atomicWriteFileSync, updateJsonFile } from './overlay-write.mjs'
+import { dataPath, dataPathContained } from './paths.mjs'
 
 const INDEX_PATH = dataPath('contacts/unified-index.json')
 const ATTESTED_PATH = dataPath('contacts/attested.json')
@@ -44,7 +45,18 @@ const PROPOSALS_PATH = (() => {
     console.error('--proposals needs a file path (e.g. --proposals contacts/cue-hometown.json)')
     process.exit(1)
   }
-  return isAbsolute(v) ? v : dataPath(v)
+  if (isAbsolute(v)) return v
+  // dataPath() is join(), which NORMALIZES '..' — so it anchors a relative value
+  // to the data root but does not KEEP it there, and `--proposals ../x.json`
+  // wrote this PII-bearing file to the root's parent (a longer chain reaches
+  // anywhere writable, including the tracked engine tree). The containment check
+  // lives in paths.mjs so this and data-write.mjs can't drift apart again.
+  try {
+    return dataPathContained(v)
+  } catch (err) {
+    console.error(err.message)
+    process.exit(1)
+  }
 })()
 
 const argv = process.argv.slice(2)
@@ -124,7 +136,7 @@ async function propose() {
   console.log(`[cue-tag] checking ${pool.length} contacts against cue (${batches.length} batches of ≤${batchSize}, model ${model}): ${cue}`)
   const results = [...carried]
   const bank = (complete) =>
-    writeFileSync(PROPOSALS_PATH, JSON.stringify({ cue, tag, proposedAt: new Date().toISOString(), complete, proposals: results }, null, 2))
+    atomicWriteFileSync(PROPOSALS_PATH, JSON.stringify({ cue, tag, proposedAt: new Date().toISOString(), complete, proposals: results }, null, 2))
   for (let i = 0; i < batches.length; i += concurrency) {
     const wave = batches.slice(i, i + concurrency)
     for (const r of await Promise.all(wave.map((b) => checkBatch(b, cue, model)))) results.push(...r)
@@ -156,27 +168,38 @@ function apply() {
     console.error('Nothing matched — check the key list or verdicts.')
     process.exit(1)
   }
-  let attested = {}
+  // Fail early with a readable message if the overlay is already corrupt —
+  // better than surfacing a bare parse error from inside the locked section.
   if (existsSync(ATTESTED_PATH)) {
     try {
-      attested = unwrapEntries(JSON.parse(readFileSync(ATTESTED_PATH, 'utf8')))
+      unwrapEntries(JSON.parse(readFileSync(ATTESTED_PATH, 'utf8')))
     } catch (e) {
       console.error(`Malformed ${ATTESTED_PATH}: ${e.message} — fix it before applying.`)
       process.exit(1)
     }
   }
-  for (const p of wanted) {
-    // Merge over any existing attested fields — never clobber owner-authored
-    // facts — and mark provenance: this context came through a web check, not
-    // the owner's own words (review 2026-07-19).
-    attested[p.key] = {
-      ...attested[p.key],
-      relationship: tag,
-      context: `${cue}. Cue-checked${p.evidence ? ` (${p.evidence})` : ''}, owner-confirmed ${new Date().toISOString().slice(0, 10)}.`,
-      corroboration: 'web',
-    }
-  }
-  writeFileSync(ATTESTED_PATH, JSON.stringify(wrapEntries(attested), null, 2))
+  // The authoritative read happens INSIDE the lock: this applies a whole batch
+  // at once, so anything a concurrent attest.mjs wrote between the check above
+  // and the write below would otherwise be overwritten and lost silently.
+  updateJsonFile(
+    ATTESTED_PATH,
+    (raw) => {
+      const attested = unwrapEntries(raw)
+      for (const p of wanted) {
+        // Merge over any existing attested fields — never clobber owner-authored
+        // facts — and mark provenance: this context came through a web check, not
+        // the owner's own words (review 2026-07-19).
+        attested[p.key] = {
+          ...attested[p.key],
+          relationship: tag,
+          context: `${cue}. Cue-checked${p.evidence ? ` (${p.evidence})` : ''}, owner-confirmed ${new Date().toISOString().slice(0, 10)}.`,
+          corroboration: 'web',
+        }
+      }
+      return wrapEntries(attested)
+    },
+    {},
+  )
   unlinkSync(PROPOSALS_PATH)
   console.log(`Attested ${wanted.length} contact(s) as "${tag}". Rebuild: node scripts/build-index.mjs`)
 }

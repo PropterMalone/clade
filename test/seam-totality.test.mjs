@@ -35,7 +35,12 @@ const SHELLS = [
 
 // Quote forms: ' " and backtick (template literals interpolate data paths too),
 // with an optional ./ prefix — all evade a naive quote-flush-to-keyword regex.
-const DATA_LITERAL = /['"`]\.?\/?(contacts|imports|profile)\//
+// The trailing `/` alternation with a closing quote is the second form: a
+// SEGMENT-style path — join(dir, 'contacts', f), mkdirSync('contacts') — carries
+// no slash inside the literal and slipped through the original regex entirely.
+// That shape is exactly what a "cleaner path handling" refactor produces, so the
+// guard has to see it. (Verified against the current tree: no false positives.)
+const DATA_LITERAL = /['"`]\.?\/?(contacts|imports|profile)(\/|['"`])/
 // A dataPath('contacts/…') argument in any quote form — the allowed shape.
 const WRAPPED = /dataPath\(\s*['"`]\.?\/?(contacts|imports|profile)\/[^'"`]*['"`]/g
 
@@ -70,9 +75,46 @@ test('a new stray literal WOULD be caught (guard self-check)', () => {
   assert.ok(caught('const OUT = `contacts/enrichments/${f}`'), 'template literal')
   assert.ok(caught("const OUT = './contacts/attested.json'"), './-prefixed')
   assert.ok(caught("readFileSync('profile/about-me.md')"), 'inline arg')
+  // Segment-style paths: no slash inside the literal, so the original regex
+  // missed both. join() is the idiomatic form a refactor reaches for.
+  assert.ok(caught("writeFileSync(join('contacts', 'foo.json'), x)"), 'join segment')
+  assert.ok(caught("mkdirSync('contacts')"), 'bare dir name')
   // …and does NOT fire on the allowed wrapped form, in any quote style.
   assert.ok(!caught("const OUT = dataPath('contacts/unified-index.json')"), 'wrapped single')
   assert.ok(!caught('const OUT = dataPath("imports/Connections.csv")'), 'wrapped double')
+})
+
+test('scripts/lib/ resolves no data paths and reads no env/cwd (the exemption, enforced)', () => {
+  // lib/ is skipped by the scan above as "path-free by contract" — but a
+  // contract nothing checks is a comment. lib/ is also the MORE sensitive half:
+  // the package `exports` map publishes "./lib/*", so a private instance imports
+  // these modules directly through a file: symlink, and Node resolves them from
+  // the realpath. A data literal or a cwd read landing here would run against
+  // the CONSUMER's process env — invisible to the scan above, and shipped as
+  // instance-facing API.
+  //
+  // The invariant is narrow on purpose: lib/agent.mjs legitimately reads
+  // process.env for CLADE_AGENT_*, so "lib is 100% data-as-args" is already
+  // false. What must hold is that nothing under lib reads CLADE_DATA_DIR or cwd,
+  // resolves a data path, or reaches paths.mjs transitively (the exports map
+  // guards direct imports only).
+  const violations = []
+  for (const f of readdirSync(join(ROOT, 'scripts/lib')).filter((f) => f.endsWith('.mjs'))) {
+    const lines = readFileSync(join(ROOT, 'scripts/lib', f), 'utf8').split('\n')
+    lines.forEach((line, i) => {
+      if (line.trimStart().startsWith('//')) return
+      const at = `scripts/lib/${f}:${i + 1}: ${line.trim()}`
+      if (DATA_LITERAL.test(line)) violations.push(`[data literal] ${at}`)
+      if (/CLADE_DATA_DIR/.test(line)) violations.push(`[reads CLADE_DATA_DIR] ${at}`)
+      if (/process\.cwd\(/.test(line)) violations.push(`[reads cwd] ${at}`)
+      if (/from\s+['"`][^'"`]*paths\.mjs['"`]/.test(line)) violations.push(`[imports paths.mjs] ${at}`)
+    })
+  }
+  assert.equal(
+    violations.length,
+    0,
+    `scripts/lib/ must stay free of data-path resolution — it is published to instances via the exports map:\n${violations.join('\n')}`,
+  )
 })
 
 test('the shell list is enumerated, so a new shell is scanned automatically', () => {
