@@ -137,6 +137,31 @@ test('cue-tag --proposals refuses a traversal escape from the data root', () => 
   }
 })
 
+test('cue-tag --proposals refuses the helper-managed and generated files too', () => {
+  // The first version of this guard lived only in data-write.mjs. cue-tag's
+  // --proposals reached the same files through the same atomic-write primitive
+  // with no check: `--proposals contacts/attested.json --force` replaced the
+  // owner's attested facts with a proposals envelope and reported success.
+  // Protecting one call site and not its sibling is how a guard becomes
+  // decoration, so the refusal now lives in the shared resolver.
+  const dir = freshDataDir()
+  try {
+    const attested = join(dir, 'contacts/attested.json')
+    run('scripts/attest.mjs', ['--key', 'manual:precious', '--relationship', 'irreplaceable'], dir)
+    const before = readFileSync(attested, 'utf8')
+
+    const r = run('scripts/cue-tag.mjs', ['--proposals', 'contacts/attested.json', '--cue', 'x', '--tag', 'y', '--force'], dir)
+    assert.notEqual(r.status, 0, 'pointing --proposals at a managed overlay must be refused')
+    // Assert on the REASON, not just the exit code: cue-tag has several other
+    // ways to exit nonzero (no index, no cue), any of which would let this test
+    // pass while the guard was gone.
+    assert.match(r.stderr, /Refusing to overwrite contacts\/attested\.json wholesale/)
+    assert.equal(readFileSync(attested, 'utf8'), before, 'the attested overlay must be untouched')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('data-write.mjs refuses the helper-managed and generated files', () => {
   // It is the escape hatch for about-me.md / manual.json / enrichment batches.
   // A wholesale byte-stream overwrite of attested.json bypasses attest.mjs's

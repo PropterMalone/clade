@@ -15,10 +15,10 @@
 // refused. Parent directories are created.
 
 import { readFileSync } from 'node:fs'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { isAbsolute, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { atomicWriteFileSync } from './overlay-write.mjs'
-import { DATA_TOP_DIRS, UNWRITABLE_DATA_FILES, dataRoot } from './paths.mjs'
+import { DATA_TOP_DIRS, dataPathContained, dataRoot } from './paths.mjs'
 
 const ALLOWED_ROOTS = DATA_TOP_DIRS
 
@@ -36,23 +36,21 @@ function main() {
     process.exit(1)
   }
 
-  const root = dataRoot()
-  const abs = join(root, target)
-  const rel = relative(root, abs)
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    console.error(`Refusing target outside the data root: ${target}`)
-    process.exit(1)
-  }
-  const top = rel.split(sep)[0]
-  if (!ALLOWED_ROOTS.includes(top)) {
-    console.error(`Refusing target outside data roots (${ALLOWED_ROOTS.join('/, ')}/): ${target}`)
+  // Containment AND the unwritable-file refusal both live in dataPathContained()
+  // so this and cue-tag's --proposals can't diverge — they did once, and the
+  // unprotected sibling silently replaced the owner's attested facts.
+  let abs
+  try {
+    abs = dataPathContained(target)
+  } catch (err) {
+    console.error(err.message)
+    console.error('This hatch is for unstructured writes (profile/about-me.md, contacts/normalized/manual.json, contacts/enrichments/*.json).')
     process.exit(1)
   }
 
-  const refusal = UNWRITABLE_DATA_FILES.get(rel.split(sep).join('/'))
-  if (refusal) {
-    console.error(`Refusing to overwrite ${target} wholesale — ${refusal}.`)
-    console.error('This hatch is for unstructured writes (profile/about-me.md, contacts/normalized/manual.json, contacts/enrichments/*.json).')
+  const top = relative(dataRoot(), abs).split(sep)[0]
+  if (!ALLOWED_ROOTS.includes(top)) {
+    console.error(`Refusing target outside data roots (${ALLOWED_ROOTS.join('/, ')}/): ${target}`)
     process.exit(1)
   }
 

@@ -181,12 +181,24 @@ export function dataPath(...segments) {
 // dataPath('../x.json') silently resolves to the data root's parent, and a
 // longer chain reaches anywhere writable on the disk. Both PII-bearing-output
 // call sites route here so the check can't drift apart between them again.
+// It also enforces UNWRITABLE_DATA_FILES, and that belongs HERE rather than at
+// each caller: the first version of this guard lived only in data-write.mjs, and
+// cue-tag's --proposals reached the same files through the same atomic-write
+// primitive with no check at all — `--proposals contacts/attested.json --force`
+// replaced the owner's attested facts with a proposals envelope and printed
+// success. Protecting one call site and not its sibling is how a guard becomes
+// decoration; every user-supplied output path resolves through this function.
 export function dataPathContained(userPath) {
   const root = dataRoot()
   const abs = join(root, userPath)
   const rel = relative(root, abs)
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`Refusing target outside the data root: ${userPath}`)
+  }
+  const posixRel = rel.split(sep).join('/')
+  const refusal = UNWRITABLE_DATA_FILES.get(posixRel)
+  if (refusal) {
+    throw new Error(`Refusing to overwrite ${posixRel} wholesale — ${refusal}.`)
   }
   return abs
 }
