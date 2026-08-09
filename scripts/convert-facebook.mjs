@@ -12,10 +12,11 @@
 // the friend dates cluster by life era, and the owner's ten-second answers
 // become attested facts.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { stampSource } from './lib/envelope.mjs'
 import { facebookFriendsRecords } from './lib/ingest.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const OUT_PATH = dataPath('contacts/normalized/facebook.json')
@@ -33,7 +34,7 @@ function main() {
     process.exit(1)
   }
   mkdirSync(dataPath('contacts/normalized'), { recursive: true })
-  writeFileSync(
+  atomicWriteFileSync(
     OUT_PATH,
     JSON.stringify(stampSource({ source: 'facebook', importedAt: new Date().toISOString().slice(0, 10), records }), null, 2),
   )

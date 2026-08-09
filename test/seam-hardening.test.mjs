@@ -263,24 +263,40 @@ test('atomicWriteFileSync replaces the file rather than truncating it in place',
   }
 })
 
-test('overlay and index writers never call a bare writeFileSync', () => {
+test('no shell calls a bare writeFileSync on a data path', () => {
   // Pins the CALL SITES, complementing the inode check above which pins the
   // primitive. Either half can regress independently.
+  //
+  // ENUMERATED, not listed. The first version of this test hardcoded six file
+  // paths — which is the per-call-site guard this project keeps getting bitten
+  // by, wearing a chokepoint's description: a seventh script writing an overlay
+  // would have been invisible until someone remembered to add it. Scanning every
+  // shell means a new one is covered the day it lands.
+  //
+  // A write that genuinely isn't overlay data marks itself with `not-data:` and
+  // says why. That keeps the escape hatch explicit and greppable rather than
+  // implicit in a list nobody re-reads.
+  const shells = [
+    ...readdirSync(join(ROOT, 'scripts'))
+      .filter((f) => f.endsWith('.mjs') && f !== 'overlay-write.mjs') // defines the primitive
+      .map((f) => `scripts/${f}`),
+    'search.mjs',
+  ]
   const violations = []
-  for (const f of [
-    'scripts/attest.mjs',
-    'scripts/record-merge.mjs',
-    'scripts/cue-tag.mjs',
-    'scripts/data-write.mjs',
-    'scripts/build-index.mjs',
-    'scripts/export-knowledge.mjs',
-  ]) {
+  for (const f of shells) {
     readFileSync(join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
       if (line.trimStart().startsWith('//')) return
-      if (/\bwriteFileSync\(/.test(line)) violations.push(`${f}:${i + 1}: ${line.trim()}`)
+      if (!/\bwriteFileSync\(/.test(line)) return
+      if (/\batomicWriteFileSync\(/.test(line)) return
+      if (/not-data:/.test(line)) return
+      violations.push(`${f}:${i + 1}: ${line.trim()}`)
     })
   }
-  assert.deepEqual(violations, [], `these must write through atomicWriteFileSync:\n${violations.join('\n')}`)
+  assert.deepEqual(
+    violations,
+    [],
+    `these must write through atomicWriteFileSync (or mark themselves \`not-data:\`):\n${violations.join('\n')}`,
+  )
 })
 
 test('attest.mjs works against a fresh data dir (creates contacts/)', () => {

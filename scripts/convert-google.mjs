@@ -10,10 +10,11 @@
 // Handles " ::: " multi-value cells, keeps group labels as labels (not
 // emails), validates addresses. Rebuild after: node scripts/build-index.mjs
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { stampSource } from './lib/envelope.mjs'
 import { googleContactsRecords } from './lib/ingest.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const OUT_PATH = dataPath('contacts/normalized/google-contacts.json')
@@ -31,7 +32,7 @@ function main() {
     process.exit(1)
   }
   mkdirSync(dataPath('contacts/normalized'), { recursive: true })
-  writeFileSync(
+  atomicWriteFileSync(
     OUT_PATH,
     JSON.stringify(stampSource({ source: 'google-contacts', importedAt: new Date().toISOString().slice(0, 10), records }), null, 2),
   )

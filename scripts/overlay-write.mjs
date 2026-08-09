@@ -242,9 +242,21 @@ export function withFileLock(target, fn, { attempts = 600, waitMs = 25 } = {}) {
       release(lock)
     }
   }
+  // Name the pid. The whole module refuses to let CODE guess that a lock is safe
+  // to take — so handing the operator "remove it and retry" with nothing to check
+  // just relocates the same unverified guess to a human, who has every incentive
+  // to delete and move on. Give them the one fact that settles it.
+  let holder = 'unknown'
+  try {
+    holder = readFileSync(lock, 'utf8').trim() || 'empty'
+  } catch {
+    /* vanished while we were giving up — retrying will now succeed */
+  }
   throw new Error(
-    `Could not acquire ${lock} after ${attempts} attempts. ` +
-      `If no other Clade process is running, remove it and retry.`,
+    `Could not acquire ${lock} after ${attempts} attempts (held by pid ${holder}).\n` +
+      `Check whether that process is alive: ps -p ${holder}\n` +
+      `If it is alive, it is mid-write — wait, do not delete the lock.\n` +
+      `If nothing is found, the holder died and its pid was reused; delete ${lock} and retry.`,
   )
 }
 

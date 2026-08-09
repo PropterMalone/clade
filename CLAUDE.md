@@ -471,6 +471,15 @@ would defeat it.
   (merge rulings), and `node scripts/data-write.mjs <path>` (stdin → `about-me.md`,
   `manual.json`, cloud-fallback enrichment batches) instead of editing those files
   by hand.
+  **They also serialize the write behind a file lock** (`scripts/overlay-write.mjs`,
+  ADR-11), and that half matters to YOU specifically: firing per-key `attest.mjs`
+  calls in parallel looks obviously safe — different `--key`, apparently
+  independent work — and before the lock existed it silently destroyed the
+  owner's attested facts, because every call read the same file and the last
+  write won. Parallel calls are fine NOW. What is not fine is hand-rolling a
+  writer that skips these scripts, or piping a regenerated whole file through
+  `data-write.mjs` to "edit" an overlay — that bypasses the lock and the
+  merge, which is why the managed overlays are refused there outright.
 - **Pseudonymity gate.** This repo is published pseudonymously.
   **Threat model, stated plainly: unlinkable to strangers, known to friends.**
   Onboarding happens by personal email from the owner (`docs/onboarding.html`),

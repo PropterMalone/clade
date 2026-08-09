@@ -382,9 +382,11 @@ private-data lexicon actually requires.
    record key stranded outside `entries`, or a `schemaVersion` newer than the
    build. Two gaps to know: `manual.json` is written by the operator (quick-add),
    not a converter, so it is not auto-stamped (harmless — a normalized
-   `schemaVersion` is a sibling readers ignore); and `wrapDecisions` is only used
-   on the read/round-trip side — no script *writes* `merge-decisions.json`, it's
-   operator-authored, so its envelope is a convention, not code-enforced.
+   `schemaVersion` is a sibling readers ignore). `merge-decisions.json` used to be
+   operator-authored with a convention-only envelope; since `record-merge.mjs`
+   became its writer it is code-enforced on both sides — every ruling round-trips
+   through `wrapDecisions`, and a file that parses to the wrong shape is refused
+   with the file left untouched rather than replaced (ADR-11).
 
 7. **Keep shareable records lexicon-friendly.** `normalized` + `enrichment`
    records stay flat, typed, and free of machine-local assumptions (no absolute

@@ -62,6 +62,7 @@ import {
 } from './lib/enrich-core.mjs'
 import { runAgent } from './lib/agent.mjs'
 import { unwrapEntries, wrapEntries } from './lib/envelope.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const INDEX_PATH = dataPath('contacts/unified-index.json')
@@ -125,7 +126,7 @@ function acquireLock() {
     }
     console.warn(`[enrich] stale ${LOCK_PATH} (pid ${pid} gone) — taking over`)
   }
-  writeFileSync(LOCK_PATH, String(process.pid))
+  writeFileSync(LOCK_PATH, String(process.pid)) // not-data: a pid lock, not an overlay
   process.on('exit', () => {
     try { unlinkSync(LOCK_PATH) } catch { /* already gone */ }
   })
@@ -303,7 +304,7 @@ async function main() {
       // pid suffix: concurrent/rapid runs must never overwrite each other's batch
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       mkdirSync(ENRICH_DIR, { recursive: true })
-      writeFileSync(`${ENRICH_DIR}/batch-${ts}-${process.pid}.json`, JSON.stringify(wrapEntries(r.results), null, 2))
+      atomicWriteFileSync(`${ENRICH_DIR}/batch-${ts}-${process.pid}.json`, JSON.stringify(wrapEntries(r.results), null, 2))
       try {
         // Resolve the builder by its own location, NOT cwd — under CLADE_DATA_DIR
         // the cwd is the engine repo but a direct-invocation instance's cwd is the

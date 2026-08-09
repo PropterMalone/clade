@@ -12,10 +12,11 @@
 // Bluesky API host — run this on a local machine. Rebuild after:
 // node scripts/build-index.mjs
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { stampSource } from './lib/envelope.mjs'
 import { blueskyRecords } from './lib/ingest.mjs'
+import { atomicWriteFileSync } from './overlay-write.mjs'
 import { dataPath } from './paths.mjs'
 
 const APPVIEW = 'https://public.api.bsky.app/xrpc'
@@ -78,7 +79,7 @@ async function main() {
     process.exit(1)
   }
   mkdirSync(NORM_DIR, { recursive: true })
-  writeFileSync(
+  atomicWriteFileSync(
     OUT_PATH,
     JSON.stringify(stampSource({ source: 'bluesky', importedAt: new Date().toISOString().slice(0, 10), records }), null, 2),
   )
