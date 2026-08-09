@@ -138,13 +138,43 @@ from the GitHub app on your phone right after a meeting) and later say
 "process my quick-adds". They get parsed, merged, enriched, and checked
 against the people you already know.
 
-## Use it from your phone
+## Two ways to query it
 
-You only need a coding agent for building the rolodex. For everyday lookups,
-say "export for my Project" and you get a `rolodex-knowledge.md` file to
-upload to a claude.ai Project (call it "My Rolodex"). After that the Claude
-mobile app answers "who do I know in energy policy?" from anywhere. Re-upload
-whenever you've enriched or triaged more contacts.
+You only need a coding agent to *build* the rolodex. For everyday lookups
+there are two surfaces, and they differ in whether the answer is a snapshot or
+live.
+
+**A knowledge file.** Say "export for my Project" and you get a
+`rolodex-knowledge.md` to upload to a claude.ai Project (call it "My
+Rolodex"). After that the Claude mobile app answers "who do I know in energy
+policy?" from anywhere. No setup, and it works on a phone today. It is a
+snapshot: re-upload whenever you've enriched or triaged more contacts.
+
+**An MCP server.** Your assistant queries the live index instead of a snapshot
+you remembered to refresh. `scripts/clade-mcp.mjs` is a working one — local
+stdio, zero dependencies, three read tools (`search_contacts`, `get_contact`,
+`contact_stats`) — and registering it with Claude Code is one line:
+
+```sh
+claude mcp add clade -- node /abs/path/to/clade/scripts/clade-mcp.mjs
+```
+
+It re-reads the index on every call, so a rebuild shows up immediately with no
+restart. Point it at your data the way every other script does: run it with
+cwd set to your data directory, or set `CLADE_DATA_DIR`.
+
+Reaching a server from your *phone* is a bigger decision, because claude.ai
+connectors can only call a public HTTPS endpoint, which puts your address book
+on infrastructure strangers can reach. [docs/mcp-kit.md](docs/mcp-kit.md) is
+the contract: three deployment classes and what each one costs you in
+exposure, the seven things a remote deployment owes your index, and the fields
+a server must never serve (street addresses, the pseudonym-to-real-name
+bridge, web claims the index refused). Clade doesn't host one for you and the
+reference server isn't the canonical build — it's one conforming example.
+
+The contract isn't Clade-specific either. Implement the same three tools over
+a CSV, a Notion database, or your own app and you get the same query surface,
+no Clade required.
 
 If you prefer the browser to a terminal, Claude Code also runs at
 claude.ai/code against this repo as a private GitHub fork. See the "Cloud

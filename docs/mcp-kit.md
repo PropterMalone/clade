@@ -199,7 +199,7 @@ Append-only, timestamped, and never rewrites existing blocks.
 
 ## If you go remote
 
-Class B and C deployments owe the index six things. All are satisfiable on any
+Class B and C deployments owe the index seven things. All are satisfiable on any
 substrate — a VPS, a container on a NAS, a serverless function, a box on your
 mesh:
 
